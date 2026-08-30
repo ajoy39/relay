@@ -48,7 +48,9 @@ Run the official container as a Custom App (Docker):
 - **Image**: `ghcr.io/ggml-org/llama.cpp:server-vulkan` (Vulkan build for the 890M; if iGPU proves
   finicky, the plain `server` CPU image on 12 Zen 5 cores is a perfectly credible fallback — MoE
   with 3B active runs acceptably on CPU).
-- **Devices** (Vulkan only): pass `/dev/dri` through to the container.
+- **GPU** (Vulkan only): enable the app's **"passthrough available (non-NVIDIA) GPUs"** toggle —
+  it mounts `/dev/dri` and sets permissions for you. (Manually adding `/dev/dri` under Devices
+  works too; use one mechanism, not both, and beware trailing whitespace in hand-typed paths.)
 - **Storage**: host-path a dataset like `/mnt/tank/models` → `/models`.
 - **Entrypoint vs Command** — the Docker-backend custom app form (TrueNAS 24.10 "Electric Eel"
   and later) uses Docker's naming: *Entrypoint* is the binary, *Command* is the arguments
