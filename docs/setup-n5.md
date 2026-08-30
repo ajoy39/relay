@@ -50,19 +50,43 @@ Run the official container as a Custom App (Docker):
   with 3B active runs acceptably on CPU).
 - **Devices** (Vulkan only): pass `/dev/dri` through to the container.
 - **Storage**: host-path a dataset like `/mnt/tank/models` → `/models`.
-- **Command**:
+- **Entrypoint vs Args** — the form field named *Command* overrides the image's entrypoint (the
+  `llama-server` binary itself). **Leave Command empty**; the flags go in **Args**, and each
+  token is its own entry — there is no shell doing word-splitting, so `--port 8080` as one entry
+  breaks. Enter, in order:
 
 ```
---model /models/<your-model>.gguf
---ctx-size 32768
---n-gpu-layers 999        # Vulkan image only; omit on CPU image
---host 0.0.0.0 --port 8080
---api-key ${LLAMA_API_KEY}
---parallel 1
---jinja                   # correct chat/tool-call templating for modern models
+--model
+/models/<your-model>.gguf
+--ctx-size
+32768
+--n-gpu-layers
+999
+--host
+0.0.0.0
+--port
+8080
+--parallel
+1
+--jinja
+--alias
+qwen3-coder-30b
 ```
 
+  Notes: `--n-gpu-layers 999` means "offload everything" — Vulkan image only, omit both entries
+  on the CPU image. `--jinja` enables the model's own chat template, which modern coder models
+  need for tool calls. `--alias` sets the model name the API reports; whatever you choose here
+  is the exact string `RELAY_MODEL` must be set to at dispatch time.
+- **API key**: no shell also means `${VAR}` in Args is passed as a literal string, not expanded.
+  Set the key in the app's **environment variables** instead: `LLAMA_ARG_API_KEY=<your-key>`
+  (every `--flag` has a `LLAMA_ARG_*` env twin). Generate a throwaway secret — `openssl rand
+  -hex 32` — reused nowhere else: it sits in the app's stored config and protects only this
+  endpoint.
 - **Port**: expose 8080 on the LAN.
+
+First-start check: the app logs should show Vulkan enumerating the Radeon 890M and then layer
+offload lines. CPU-only warnings mean the `/dev/dri` passthrough didn't take — fix that before
+touching anything else.
 
 Smoke test from anything on the network:
 
