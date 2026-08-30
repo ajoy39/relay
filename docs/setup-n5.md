@@ -50,10 +50,11 @@ Run the official container as a Custom App (Docker):
   with 3B active runs acceptably on CPU).
 - **Devices** (Vulkan only): pass `/dev/dri` through to the container.
 - **Storage**: host-path a dataset like `/mnt/tank/models` → `/models`.
-- **Entrypoint vs Args** — the form field named *Command* overrides the image's entrypoint (the
-  `llama-server` binary itself). **Leave Command empty**; the flags go in **Args**, and each
-  token is its own entry — there is no shell doing word-splitting, so `--port 8080` as one entry
-  breaks. Enter, in order:
+- **Entrypoint vs Command** — the Docker-backend custom app form (TrueNAS 24.10 "Electric Eel"
+  and later) uses Docker's naming: *Entrypoint* is the binary, *Command* is the arguments
+  appended to it. **Leave Entrypoint empty** (the image already runs `llama-server`); the flags
+  go in **Command**, and each token is its own entry — there is no shell doing word-splitting,
+  so `--port 8080` as one entry breaks. Enter, in order:
 
 ```
 --model
