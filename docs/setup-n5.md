@@ -81,8 +81,10 @@ qwen3-coder-30b
   need for tool calls. `--alias` sets the model name the API reports; whatever you choose here
   is the exact string `RELAY_MODEL` must be set to at dispatch time.
 - **API key**: no shell also means `${VAR}` in Args is passed as a literal string, not expanded.
-  Set the key in the app's **environment variables** instead: `LLAMA_ARG_API_KEY=<your-key>`
-  (every `--flag` has a `LLAMA_ARG_*` env twin). Generate a throwaway secret — `openssl rand
+  Set the key in the app's **environment variables** instead: `LLAMA_API_KEY=<your-key>`.
+  (Most `--flags` have a `LLAMA_ARG_*` env twin; `--api-key` is the exception — its variable is
+  `LLAMA_API_KEY`, no `ARG`. Unknown variables are silently ignored, so a wrong name shows up
+  only as the server's "no API key is set" warning.) Generate a throwaway secret — `openssl rand
   -hex 32` — reused nowhere else: it sits in the app's stored config and protects only this
   endpoint.
 - **Port**: expose 8080 on the LAN.
