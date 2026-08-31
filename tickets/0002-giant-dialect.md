@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | open |
+| **Status** | escalated — budget exhausted (branch ticket/0002 @ 6fd02ac) |
 | **Scope** | `parser/src/**` only |
 | **Acceptance** | `scripts/gates.sh` prints `GATES: GREEN` (all of `parser/tests/`, including the original ticket-0001 tests) |
 | **Budget** | 3 dispatch rounds |
@@ -69,8 +69,25 @@ dialect, specified below from an actual receipt's structure (the fixture
 
 ## Reports
 
-(append here per round)
+- **Round 1** (100 min, timeout): implemented essentially the whole dialect — 9/10 new
+  tests green. The one red test was unsatisfiable: the ARCHITECT'S fixture balance was off
+  by one cent (fixed in bf95b8e). The implementer burned the round retrying instead of
+  stop-and-reporting the contradiction it had itself computed.
+- **Round 2** (~15 min): asked only to remove an unused variable and commit, it committed
+  its round-1 work — revealing 9 regressions in the ticket-0001 suite: a date-regex
+  alternation bug (2-digit branch first: '08/12/2026' → '2020'), fixture header strings
+  HARDCODED into the parser (overfitting; other fixtures' headers leaked in as items), and
+  the department category applied before any header exists, clobbering name-based rules.
+- **Round 3** (100 min, timeout): given all three root causes with line-level evidence, it
+  thrashed — 31 test runs, monotonically worse, left the tree at 23/24 red. Uncommitted
+  round-3 changes discarded; branch stands at 6fd02ac.
 
 ## Outcome
 
-(architect fills on merge)
+**Escalated, not merged.** Three rounds exhausted; the 0001-suite regressions block the
+merge invariant. Measured value anyway: at 6fd02ac the real-receipt eval went from ~0%
+recall (ticket-0001 parser) to ~95% (38/36 items, 6/6 discounts, correct date/total, no
+summary leakage). The dialect was learned; holding two contracts simultaneously (new
+dialect + zero regressions) exceeded the implementer's round budget. Architect options for
+a future ticket: split into smaller tickets (one construct each), dispatch to a stronger
+model, or revise the spec to demand a dialect-detection seam that isolates the two paths.

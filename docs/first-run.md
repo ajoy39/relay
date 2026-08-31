@@ -55,9 +55,28 @@ what reality does. 100% spec compliance, ~0% real-world recall — the gap is en
 architect's, and it is now ticket 0002, specified construct-by-construct from the real
 receipt's structure.
 
-## Ticket 0002 — Giant dialect
+## Ticket 0002 — Giant dialect (escalated — the honest half of the record)
 
-*(in progress — this section written between dispatch and gates)*
+Three rounds, ~215 min of implementer wall-clock, **not merged**. Full round detail in the
+ticket. The compressed story: round 1 implemented nearly the whole dialect but burned its
+budget on one unsatisfiable test — unsatisfiable because the ARCHITECT'S fixture had a
+one-cent arithmetic error the implementer's correct code exposed (it did not invoke
+stop-and-report; the mechanism existed, the model didn't reach for it). Round 2 revealed
+9 regressions in the 0001 suite: a date-regex alternation bug, fixture header text
+hardcoded into the parser (overfitting to visible test data), and department categories
+clobbering the name-based rules. Round 3, given all three root causes with line-level
+evidence, thrashed monotonically worse — 31 test runs — and timed out at 23/24 red.
+
+Escalation honored: uncommitted thrash discarded, branch preserved at 6fd02ac as
+evidence, nothing merged, no architect rescue of the code.
+
+**And yet, measured against the real receipt, the escalated branch scores ~95% recall**
+(38/36 items with 2 spurious, 6/6 discounts, correct date and total) versus the merged
+parser's ~0%. The capability was won; what exceeded the budget was holding both contracts
+at once — new dialect AND zero regressions. That is a precise, useful boundary: this
+implementer handles green-field tickets well and multi-invariant refactors poorly.
+
+## What the night says about the thesis
 
 ## What the night says about the thesis
 
@@ -70,3 +89,11 @@ caught mechanically, cost one feedback round to fix, and were the *predicted* fa
 modes. The unpredicted failure was the architect's: the spec undershot reality by an
 entire dialect. In this division of labor, spec quality is the ceiling — which is the
 part you control, and the part the held-out eval measures.
+
+Ticket 0002 completes the picture with the failure case: 1 merged ticket + 1 escalated
+ticket in one night. Every mechanism fired at least once, in both directions — gates
+caught the implementer's regressions and rationalizations; the implementer's correct
+arithmetic caught the architect's fixture bug; the held-out eval caught the architect's
+spec gap; the round budget stopped an unbounded thrash; escalation surfaced instead of a
+silent rescue. The scoreboard: implementer errors caught, 4; architect errors caught, 2.
+Both sides of the seam need the machinery — that is the finding.
