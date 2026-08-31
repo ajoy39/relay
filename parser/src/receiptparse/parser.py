@@ -35,6 +35,12 @@ ALIAS_TABLE = {
     "TWLS": "towels",
     "FRZ": "frozen",
     "6RL": "6 roll",
+    # New aliases from ticket 0005
+    "YOGRT": "yogurt",
+    "PLN": "plain",
+    "KTL": "kettle",
+    "SPRK": "sparkling",
+    "8Z": "8 oz",
 }
 
 # Department header category mapping
@@ -86,6 +92,9 @@ def parse_receipt(text: str) -> Receipt:
     # Track current department category
     current_category = None
     seen_date_line = False
+    
+    # Track the next item's quantity from standalone multibuy prefixes
+    next_item_qty = 1
     
     # Process lines
     for line in lines:
@@ -140,10 +149,31 @@ def parse_receipt(text: str) -> Receipt:
                 current_category = DEPARTMENT_CATEGORY_MAP.get(first_word, "other")
             continue
             
+        # Check for weight prefix lines (e.g., "1.52 lb @ 0.79 /lb") - these should be ignored
+        weight_line_match = re.search(r'^\s*\d+(?:\.\d+)?\s+[a-zA-Z]+\s+@\s+\d+(?:\.\d+)?\s*/[a-zA-Z]+$', line)
+        if weight_line_match:
+            # Skip weight lines entirely - they are informational
+            continue
+            
+        # Check for standalone multibuy prefix lines (e.g., "2 @ 2.50")
+        multibuy_line_match = re.search(r'^\s*(\d+)\s+@\s+(\d+(?:\.\d+)?)$', line)
+        if multibuy_line_match:
+            try:
+                qty = int(multibuy_line_match.group(1))
+                # Set the quantity for the next item
+                next_item_qty = qty
+                # Skip this line - it's not an item
+                continue
+            except Exception:
+                # If parsing fails, treat as regular item line
+                pass
+            
         # Parse item lines with new Giant dialect constructs
-        item = parse_item_line(line, current_category)
+        item = parse_item_line(line, current_category, next_item_qty)
         if item:
             items.append(item)
+            # Reset next_item_qty after using it
+            next_item_qty = 1
     
     # Check if total matches
     subtotal = Decimal("0")
@@ -164,13 +194,14 @@ def parse_receipt(text: str) -> Receipt:
         items=items
     )
 
-def parse_item_line(line: str, current_category: str | None = None) -> Item | None:
+def parse_item_line(line: str, current_category: str | None = None, next_item_qty: int = 1) -> Item | None:
     """
     Parse a single item line into an Item object, handling Giant dialect constructs.
     
     Args:
         line: Line from receipt text
         current_category: Current department category, if any
+        next_item_qty: Quantity to use for this item (from standalone multibuy prefix)
         
     Returns:
         Item object or None if parsing fails
@@ -215,11 +246,13 @@ def parse_item_line(line: str, current_category: str | None = None) -> Item | No
             name_tokens = tokens
             suffix = None
     
-    # Check if it's a multi-buy (e.g., "2 @ 1.29")
-    qty = 1
+    # Check if it's a multi-buy (e.g., "2 @ 1.29") - this is the inline version
+    qty = next_item_qty  # Default to the next_item_qty (from standalone multibuy prefix)
     if len(name_tokens) >= 3 and name_tokens[-2] == "@":
         try:
-            qty = int(name_tokens[-3])
+            inline_qty = int(name_tokens[-3])
+            # If inline @ is present, override the qty from standalone prefix
+            qty = inline_qty
             # Remove the qty tokens from name for normalization
             name_tokens = name_tokens[:-3]
         except Exception:
@@ -266,7 +299,7 @@ def normalize_name(name: str) -> str:
     
     Args:
         name: Raw name from receipt
-        
+         
     Returns:
         Normalized name
     """
@@ -274,10 +307,10 @@ def normalize_name(name: str) -> str:
     normalized_tokens = []
     i = 0
     
-    # Try to match multi-word aliases first
+    # Try to match multi-word aliases first (up to 3 words)
     while i < len(tokens):
-        # Check for multi-word matches (up to 3 words for safety)
         matched = False
+        # Check for multi-word matches (up to 3 words for safety)
         for length in range(min(3, len(tokens) - i), 0, -1):
             phrase = " ".join(tokens[i:i + length])
             if phrase in ALIAS_TABLE:
@@ -291,6 +324,15 @@ def normalize_name(name: str) -> str:
         if not matched:
             # Single token processing
             token = tokens[i]
+            # Strip leading '+' characters
+            if token.startswith("+"):
+                token = token[1:]
+                
+            # Skip noise tokens: SB, NP, WT
+            if token in ("SB", "NP", "WT"):
+                i += 1
+                continue
+                
             if token in ALIAS_TABLE:
                 replacement = ALIAS_TABLE[token]
                 if replacement:  # Empty string means drop the token
