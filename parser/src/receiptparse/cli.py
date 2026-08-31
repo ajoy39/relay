@@ -4,10 +4,6 @@ import os
 import csv
 
 def main():
-    # Add the src directory to Python path
-    src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    sys.path.insert(0, src_dir)
-    
     if len(sys.argv) < 2:
         print("Usage: python -m receiptparse FILE [FILE...]", file=sys.stderr)
         sys.exit(2)
