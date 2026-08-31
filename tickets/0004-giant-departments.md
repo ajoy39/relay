@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | blocked-on 0003 |
+| **Status** | open |
 | **Scope** | `parser/src/**` only |
 | **Acceptance** | `scripts/gates.sh` GREEN (0001 suite + test_giant_lines.py + test_giant_departments.py) |
 | **Budget** | 3 dispatch rounds |
@@ -16,6 +16,11 @@ for the items that follow.** Nothing else changes.
 
 As ticket 0003: prior tests green and untouched; Decimal; stdlib; nothing outside
 `parser/src/`; **no fixture literals in the parser** (structural recognition only).
+
+## Approach note (from ticket 0003)
+
+You MAY rewrite parser.py wholesale if that is simpler than editing — ticket 0003
+landed green only under rewrite framing. All prior tests remain the contract.
 
 ## The construct
 

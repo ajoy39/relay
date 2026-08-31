@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | open |
+| **Status** | merged (rewrite framing; edit framing escalated after 3 rounds) |
 | **Scope** | `parser/src/**` only |
 | **Acceptance** | `scripts/gates.sh` prints `GATES: GREEN` (all of `parser/tests/` — the 14 ticket-0001 tests AND `test_giant_lines.py`) |
 | **Budget** | 3 dispatch rounds |
