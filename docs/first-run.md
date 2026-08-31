@@ -78,8 +78,6 @@ implementer handles green-field tickets well and multi-invariant refactors poorl
 
 ## What the night says about the thesis
 
-## What the night says about the thesis
-
 The bet was that wall-clock converts to reliability through orchestration. One data
 point, but a clean one: a 30B-A3B model on owned hardware produced a merged,
 review-passed parser in ~110 minutes of its own time, with the architect contributing a
