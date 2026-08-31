@@ -4,9 +4,7 @@ Receipt parser for grocery receipts.
 This module provides a parser for grocery receipt text that converts it into
 structured line items with normalized names and categories.
 """
-
 from __future__ import annotations
-
 
 import re
 from dataclasses import dataclass
@@ -81,12 +79,23 @@ def parse_receipt(text: str) -> Receipt:
             continue
             
         # Handle date line (look for date pattern in header lines)
-        if re.search(r'\d{2}/\d{2}/\d{4}', line) and not date:
-            date_match = re.search(r'(\d{2}/\d{2}/\d{4})', line)
-            if date_match:
-                # Convert MM/DD/YYYY to YYYY-MM-DD
-                date_parts = date_match.group(1).split('/')
+        # First try 4-digit year pattern, then 2-digit year pattern
+        date_match = re.search(r'(\d{2}/\d{2}/\d{4})', line)
+        if not date_match:
+            date_match = re.search(r'(\d{2}/\d{2}/\d{2})', line)
+        
+        if date_match and not date:
+            date_str = date_match.group(1)
+            if len(date_str.split('/')[-1]) == 4:
+                # 4-digit year format MM/DD/YYYY
+                date_parts = date_str.split('/')
                 date = f"{date_parts[2]}-{date_parts[0]}-{date_parts[1]}"
+            else:
+                # 2-digit year format MM/DD/YY -> convert to 20YY-MM-DD
+                date_parts = date_str.split('/')
+                year = int(date_parts[2])
+                full_year = 2000 + year if year < 50 else 1900 + year  # Assume 2000+ for 00-49, 1900+ for 50-99
+                date = f"{full_year:04d}-{date_parts[0]}-{date_parts[1]}"
             continue
             
         # Handle tax line
@@ -96,19 +105,21 @@ def parse_receipt(text: str) -> Receipt:
                 tax = Decimal(tax_match.group(1))
             continue
             
-        # Handle total line
-        if line.startswith("TOTAL"):
-            total_match = re.search(r'TOTAL\s+([0-9.]+)', line)
+        # Handle total line (including BALANCE lines)
+        if line.startswith("TOTAL") or (line.startswith("*") and "BALANCE" in line.lstrip("*").strip()):
+            total_match = re.search(r'(?:TOTAL|BALANCE)\s+([0-9.]+)', line)
             if total_match:
                 total = Decimal(total_match.group(1))
-            continue  # Don't break, continue parsing to handle item lines
+            continue
             
-        # Parse item lines: look for lines that end with a price
-        # Match lines that end with a decimal number (including negative)
-        if re.search(r'\s+(-?\d+\.\d+)$', line):
-            item = parse_item_line(line)
-            if item:
-                items.append(item)
+        # Handle summary lines (ignore lines with "PRICE YOU PAY")
+        if "PRICE YOU PAY" in line:
+            continue
+            
+        # Parse item lines with new Giant dialect constructs
+        item = parse_item_line(line)
+        if item:
+            items.append(item)
     
     # Check if total matches
     subtotal = Decimal("0")
@@ -131,7 +142,7 @@ def parse_receipt(text: str) -> Receipt:
 
 def parse_item_line(line: str) -> Item | None:
     """
-    Parse a single item line into an Item object.
+    Parse a single item line into an Item object, handling Giant dialect constructs.
     
     Args:
         line: Line from receipt text
@@ -141,28 +152,44 @@ def parse_item_line(line: str) -> Item | None:
     """
     line = line.strip()
     
-    # Extract amount (last token)
-    tokens = line.split()
-    if not tokens:
-        return None
-        
-    # Check if last token is a valid amount (includes negative)
-    amount_str = tokens[-1]
-    try:
-        amount = Decimal(amount_str)
-        # Remove the amount from tokens for name processing
-        name_tokens = tokens[:-1]
-    except Exception:
-        # If amount is not valid, treat entire line as name and mark as flagged
-        return Item(
-            raw=line,
-            name=line.lower(),
-            category="other",
-            qty=1,
-            line_total=None,
-            flagged=True
-        )
-        
+    # Check for trailing minus discount (like "1.20-F")
+    # This pattern matches a number followed by a dash and a letter
+    trailing_minus_match = re.search(r'(-?\d+\.\d+)-([A-Z])$', line)
+    if trailing_minus_match:
+        amount_str = trailing_minus_match.group(1)
+        # For trailing minus, we make the amount negative
+        amount = Decimal(amount_str) * Decimal("-1")
+        # Remove the amount and suffix from the line for name processing
+        name_line = line[:trailing_minus_match.start()].strip()
+        tokens = name_line.split()
+        name_tokens = tokens
+        suffix = trailing_minus_match.group(2)
+    else:
+        # Check for flag letter suffix (like "4.19 F")
+        flag_letter_match = re.search(r'(-?\d+\.\d+)\s+([A-Z])$', line)
+        if flag_letter_match:
+            amount_str = flag_letter_match.group(1)
+            amount = Decimal(amount_str)
+            # Remove the amount and suffix from the line for name processing
+            name_line = line[:flag_letter_match.start()].strip()
+            tokens = name_line.split()
+            name_tokens = tokens
+            suffix = flag_letter_match.group(2)
+        else:
+            # Standard case: look for lines that end with a price
+            # Match lines that end with a decimal number (including negative)
+            amount_match = re.search(r'\s+(-?\d+\.\d+)$', line)
+            if not amount_match:
+                return None
+                
+            amount_str = amount_match.group(1)
+            amount = Decimal(amount_str)
+            # Remove the amount from tokens for name processing
+            name_line = line[:-len(amount_str) - 1].strip()
+            tokens = name_line.split()
+            name_tokens = tokens
+            suffix = None
+    
     # Check if it's a multi-buy (e.g., "2 @ 1.29")
     qty = 1
     if len(name_tokens) >= 3 and name_tokens[-2] == "@":
@@ -192,13 +219,16 @@ def parse_item_line(line: str) -> Item | None:
             flagged=True
         )
     
+    # Special handling for trailing minus discounts - they are not flagged
+    flagged = False if suffix and suffix == "-" else not has_ascii_letters
+    
     return Item(
         raw=line,
         name=normalized_name,
         category=category,
         qty=qty,
         line_total=amount,
-        flagged=False
+        flagged=flagged
     )
 
 def normalize_name(name: str) -> str:
