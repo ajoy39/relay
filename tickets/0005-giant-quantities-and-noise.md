@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | open |
+| **Status** | merged (1 round, review PASS; integration suite green; real-receipt eval 100%) |
 | **Scope** | `parser/src/**` only |
 | **Acceptance** | `scripts/gates.sh` GREEN (everything prior + `test_receipts_giant.py`, the full-dialect integration suite) |
 | **Budget** | 3 dispatch rounds |
