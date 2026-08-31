@@ -37,6 +37,17 @@ ALIAS_TABLE = {
     "6RL": "6 roll",
 }
 
+# Department header category mapping
+DEPARTMENT_CATEGORY_MAP = {
+    "BAKERY": "bakery",
+    "DAIRY": "dairy",
+    "DELI": "meat",
+    "FROZEN": "frozen",
+    "GROCERY": "pantry",
+    "MEAT": "meat",
+    "PRODUCE": "produce",
+}
+
 @dataclass
 class Item:
     raw: str
@@ -72,6 +83,10 @@ def parse_receipt(text: str) -> Receipt:
     total = None
     items = []
     
+    # Track current department category
+    current_category = None
+    seen_date_line = False
+    
     # Process lines
     for line in lines:
         line = line.strip()
@@ -96,6 +111,7 @@ def parse_receipt(text: str) -> Receipt:
                 year = int(date_parts[2])
                 full_year = 2000 + year if year < 50 else 1900 + year  # Assume 2000+ for 00-49, 1900+ for 50-99
                 date = f"{full_year:04d}-{date_parts[0]}-{date_parts[1]}"
+            seen_date_line = True
             continue
             
         # Handle tax line
@@ -116,8 +132,16 @@ def parse_receipt(text: str) -> Receipt:
         if "PRICE YOU PAY" in line:
             continue
             
+        # Check for department header line
+        if is_department_header(line):
+            # Only process headers that have already seen a date line or are in the category map
+            first_word = line.split()[0] if line.split() else ""
+            if seen_date_line or first_word in DEPARTMENT_CATEGORY_MAP:
+                current_category = DEPARTMENT_CATEGORY_MAP.get(first_word, "other")
+            continue
+            
         # Parse item lines with new Giant dialect constructs
-        item = parse_item_line(line)
+        item = parse_item_line(line, current_category)
         if item:
             items.append(item)
     
@@ -140,12 +164,13 @@ def parse_receipt(text: str) -> Receipt:
         items=items
     )
 
-def parse_item_line(line: str) -> Item | None:
+def parse_item_line(line: str, current_category: str | None = None) -> Item | None:
     """
     Parse a single item line into an Item object, handling Giant dialect constructs.
     
     Args:
         line: Line from receipt text
+        current_category: Current department category, if any
         
     Returns:
         Item object or None if parsing fails
@@ -206,6 +231,10 @@ def parse_item_line(line: str) -> Item | None:
     
     # Determine category
     category = get_category(normalized_name, amount)
+    
+    # If we have a current department category and this is not a discount, override the category
+    if current_category and amount >= 0:
+        category = current_category
     
     # Check if the item has no ASCII letters (garbage)
     has_ascii_letters = any(c.isalpha() for c in name)
@@ -307,3 +336,44 @@ def get_category(name: str, amount: Decimal) -> str:
         return "pantry"
     else:
         return "other"
+
+
+def is_department_header(line: str) -> bool:
+    """
+    Check if a line is a department header.
+    
+    A department header consists only of capital letters, spaces, hyphens, and asterisks
+    (no digits) and is not an item.
+    
+    Args:
+        line: Line from receipt text
+        
+    Returns:
+        True if the line is a department header, False otherwise
+    """
+    # Check if line contains only capital letters, spaces, hyphens, and asterisks
+    # and no digits
+    if not line:
+        return False
+    
+    # Remove trailing whitespace to check if it's all valid characters
+    stripped = line.strip()
+    
+    # Check that it's not empty after stripping
+    if not stripped:
+        return False
+        
+    # Check if all characters are valid (capital letters, spaces, hyphens, asterisks)
+    valid_chars = set('ABCDEFGHIJKLMNOPQRSTUVWXYZ -_*')
+    if not all(c in valid_chars for c in stripped):
+        return False
+    
+    # Check that it doesn't contain digits
+    if any(c.isdigit() for c in stripped):
+        return False
+    
+    # Check that it's not just whitespace
+    if stripped.isspace():
+        return False
+        
+    return True
