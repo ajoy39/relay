@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | blocked-on 0004 |
+| **Status** | open |
 | **Scope** | `parser/src/**` only |
 | **Acceptance** | `scripts/gates.sh` GREEN (everything prior + `test_receipts_giant.py`, the full-dialect integration suite) |
 | **Budget** | 3 dispatch rounds |
@@ -17,6 +17,11 @@ tickets 0003–0005.
 
 As before: all prior tests green and untouched; Decimal; stdlib; nothing outside
 `parser/src/`; no fixture literals in the parser.
+
+## Approach note (from ticket 0003)
+
+You MAY rewrite parser.py wholesale if simpler than editing. All prior tests
+remain the contract.
 
 ## The constructs
 

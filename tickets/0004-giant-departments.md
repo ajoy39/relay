@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | open |
+| **Status** | merged (1 round, review PASS; architect committed at green) |
 | **Scope** | `parser/src/**` only |
 | **Acceptance** | `scripts/gates.sh` GREEN (0001 suite + test_giant_lines.py + test_giant_departments.py) |
 | **Budget** | 3 dispatch rounds |
