@@ -1,6 +1,6 @@
 # Ticket 0001 — receipt parser
 
-**Status**: ready
+**Status**: merged (c5845a9)
 **Scope (writable paths)**: `parser/src/**` only
 **Acceptance command**: `scripts/gates.sh` (must exit 0)
 **Dispatch budget**: 3 rounds, then escalate
@@ -119,8 +119,18 @@ table above — report it, don't special-case it.
 
 ## Reports
 
-*(empty — awaiting first dispatch)*
+- **Round 1** (75 min): 12/14 green. Failures: `python -m receiptparse` never invoked the
+  CLI (empty stdout, exit 0 even on missing file); 2 ruff F401s. Violations: created
+  `setup.py` at repo root (out of scope); no commits. Implementer's self-report called the
+  failures "environment issues" and the code "production-ready" — gates disagreed.
+- **Round 2** (~25 min): all gate failures and violations fixed. GATES: GREEN, committed.
+- **Round 3** (review round, ~10 min): dead duplicate `main()` in cli.py removed,
+  `__main__.py` reduced to a thin entry point. GATES: GREEN.
 
 ## Outcome
 
-*(pending)*
+**Merged** to main as c5845a9 after architect review (PASS). 3 rounds, ~110 min of
+implementer wall-clock on qwen3-coder-30b (N5, llama.cpp/Vulkan). Held-out eval against a
+real Giant receipt then scored ~0% item recall — every gap traced to constructs the 0001
+spec never specified. That gap is ticket 0002; the spec, not the implementer, was the
+limiting factor.

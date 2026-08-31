@@ -1,0 +1,28 @@
+MEGAMART
+123 EXAMPLE AVE
+SOMEWHERE, PA 19100
+Store Telephone: (000) 555-0100
+
+Store #0042        07/22/26        10:15am
+
+DAIRY
+    SB WHOLE MILK      NP      3.49 F
+    YOGRT GRK PLN              5.99 F
+GROCERY
+    KTL CHIPS 8Z               4.29 F
+    BONUS BUY SAVINGS          1.30-F
+  PRICE YOU PAY          2.99
+    SPRK WATER 12PK            6.99 B
+MEAT
+    CHKN BRST BNLS             8.49 F
+    BONUS BUY SAVINGS          2.00-F
+  PRICE YOU PAY          6.49
+PRODUCE
+ 1.52 lb @ 0.79 /lb
+WT  FRESH BANANAS              1.20 F
+ 2 @ 2.50
+    AVOCADOS                   5.00 F
+    ##&&@@!!                   3.33 F
+
+    TAX                        0.42
+**** BALANCE                  32.56
