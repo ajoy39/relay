@@ -1,0 +1,20 @@
+CORNER MART
+99 SAMPLE RD
+NOWHERE, PA 19000
+
+Store #0007        06/16/26        09:30am
+
+    OJ 64OZ                    5.49 B
+DAIRY
+    WHL MLK 1GAL               4.19 F
+GROCERY
+    SPARK WATER 12PK           6.99 B
+DELI
+    BNLS CHKN BRST             7.99 F
+FROZEN FOOD
+    FRZ PEAS                   2.29 F
+MISC
+    CHOLULA HOT SCE            4.99 F
+
+    TAX                        0.75
+**** BALANCE                  32.69

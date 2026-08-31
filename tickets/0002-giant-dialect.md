@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | escalated — budget exhausted (branch ticket/0002 @ 6fd02ac) |
+| **Status** | escalated → superseded by the 0003–0005 split (same constructs, one concern per ticket) |
 | **Scope** | `parser/src/**` only |
 | **Acceptance** | `scripts/gates.sh` prints `GATES: GREEN` (all of `parser/tests/`, including the original ticket-0001 tests) |
 | **Budget** | 3 dispatch rounds |
