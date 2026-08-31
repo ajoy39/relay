@@ -25,4 +25,4 @@ WT  FRESH BANANAS              1.20 F
     ##&&@@!!                   3.33 F
 
     TAX                        0.42
-**** BALANCE                  32.56
+**** BALANCE                  32.57

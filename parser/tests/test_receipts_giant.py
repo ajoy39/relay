@@ -23,7 +23,7 @@ def test_two_digit_year_date():
 def test_balance_is_total_and_matches():
     r = load()
     assert r.tax == Decimal("0.42")
-    assert r.total == Decimal("32.56")
+    assert r.total == Decimal("32.57")
     assert r.total_matches is True
 
 
