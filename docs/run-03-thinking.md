@@ -48,3 +48,30 @@ PC as fast 80B host; RAM upgrades when the crunch breaks) has its justification.
 If not, the 30B + rewrite-framing playbook from run-02 stands as the local
 ceiling, and it is — measured across five merged tickets — a perfectly workable
 one.
+
+## Postscript — the 80B arm, attempted and abandoned (2026-09-02/03)
+
+Qwen3-Next-80B-A3B-Instruct Q4_K_M (~45GB) was downloaded and configured on the
+N5, deliberately accepting mmap streaming against 48GB of RAM. It never served a
+token. Three configurations, three failures:
+
+1. `--n-gpu-layers 999` (inherited from the 30B config): the loader tries to
+   allocate ~45GB of GTT on a 48GB box. Crash loop.
+2. `--n-gpu-layers 0` (CPU-only, mmap streaming as intended): silent death ~0.6s
+   into the load, mid-tokenizer, no error line — the host OOM killer, not the
+   container (no cgroup limit was set) and not the image (pulls latest, so
+   Qwen3-Next support was present; the model was recognized and read).
+3. The remaining lever — dropping the ZFS ARC cap to ~2GB to hand the page cache
+   every available byte — was **declined on operational grounds**: this NAS also
+   serves live web services, and ARC is load-bearing for their latency.
+
+**Finding.** A 45GB model does not fit a 48GB machine that has a real job. The
+constraint isn't mmap or quantization — it's that the page cache needs room to
+hold the working set, and a live filesystem plus a live workload are already
+using it. "Accept the overflow tax" was a reasonable bet; the tax turned out to
+be non-payable rather than merely expensive.
+
+The scale question therefore moves off this box: the 80B belongs on the desktop
+(5700X3D / 7800 XT) once its second 32GB kit is installed — 64GB holds the model
+resident with no streaming at all, and the GPU takes attention + prefill. The N5
+returns to its proven role as the always-on 30B implementer.
