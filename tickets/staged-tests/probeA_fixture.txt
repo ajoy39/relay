@@ -1,0 +1,11 @@
+CORNER MART
+99 SAMPLE RD
+
+Store #0007        06/20/26        11:00am
+
+    WHL MLK 1GAL               4.00 F
+    OJ 64OZ                    5.00 B
+    PPR TWLS 6RL               6.00 T
+    SUBTOTAL                  15.00
+    TAX                        1.00
+**** BALANCE                  16.00
