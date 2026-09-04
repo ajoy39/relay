@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | open |
+| **Status** | superseded by 0008 — its implicit layering induced a dependency cycle; kept as the control condition in run 04 |
 | **Scope** | `parser/src/**` only (new files welcome inside `parser/src/receiptparse/`) |
 | **Acceptance** | `scripts/gates.sh` prints `GATES: GREEN` — all 35 prior tests plus `test_dialect_seam.py` |
 | **Budget** | 3 dispatch rounds |

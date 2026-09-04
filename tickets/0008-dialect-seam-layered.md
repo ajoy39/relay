@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | open |
+| **Status** | merged (65ace1a) — 4/4 green across independent trials |
 | **Scope** | `parser/src/**` only |
 | **Acceptance** | `scripts/gates.sh` prints `GATES: GREEN` — all 35 prior tests plus `test_dialect_seam.py` |
 | **Budget** | 1 dispatch round per trial |
