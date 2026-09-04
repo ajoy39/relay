@@ -1,4 +1,4 @@
-from receiptparse.parser import parse_receipt
+from receiptparse import parse_receipt
 import sys
 import os
 import csv
