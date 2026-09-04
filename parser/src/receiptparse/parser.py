@@ -71,7 +71,7 @@ class Receipt:
     total_matches: bool
     items: List[Item]
 
-def parse_receipt(text: str) -> Receipt:
+def parse_generic(text: str) -> Receipt:
     """
     Parse receipt text into structured data.
     
