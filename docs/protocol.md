@@ -74,3 +74,32 @@ This protocol was designed inside a cloud session that can never touch the machi
 runs on. That constraint generalizes: sessions end, context windows fill, models change. A spec
 with executable acceptance criteria is the only handoff artifact that survives all three — which
 is why the spec is the product here, and the code is its consequence.
+
+## Amendment (run 04): stop-and-report is documentation, not a mechanism
+
+The lifecycle diagram above shows a **stop-and-report** path — the implementer
+detecting that the spec contradicts itself and escalating to the architect
+instead of bulldozing. In 20+ observed rounds across three local models, that
+path has fired **zero** times.
+
+Run 04 tested it directly. A ticket was built whose tests are unsatisfiable by
+construction (two tests demanding different item counts from one fixture). Six
+trials under the standard rules: zero reports, five explicit claims of success.
+Three further trials whose prompt opened with "before writing any code, verify
+the tests are mutually satisfiable; if they are not, STOP and name the conflict":
+zero reports. One of those trials wrote "let me verify they are satisfiable" and
+then implemented anyway. Instruction-following at the surface, not the semantic
+level.
+
+Treat the rule accordingly:
+
+- **Keep rule 4 in dispatch prompts.** It costs nothing and may bind on a
+  stronger model.
+- **Do not build on it.** Any part of the workflow that assumes the implementer
+  will surface a bad spec is unprotected. What actually protects the work is the
+  part with no model in it: the gates, the round budget, and an architect who
+  reads the diff.
+- **Corollary for the architect:** a contradictory spec will not come back as a
+  question. It comes back as a confident success report over red gates. Verify
+  ticket arithmetic and test consistency *before* dispatch — a one-cent fixture
+  error in run 02 cost a 100-minute round for exactly this reason.
