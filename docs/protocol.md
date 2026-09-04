@@ -75,6 +75,23 @@ runs on. That constraint generalizes: sessions end, context windows fill, models
 with executable acceptance criteria is the only handoff artifact that survives all three — which
 is why the spec is the product here, and the code is its consequence.
 
+## The two checks with no model in them
+
+Both are mechanical, both refuse loudly, and both exist because their absence
+cost real rounds:
+
+- **`scripts/check_ticket.sh <ticket>`** — pre-flight. Refuses to pass a ticket
+  missing a required section (including **Structure and dependencies**), holding
+  unfilled template placeholders, naming test files that do not exist or cannot
+  be collected, or whose gates are already green. That third check is the direct
+  descendant of run 04's nine wasted trials against an unarmed probe.
+- **`scripts/scan_report.sh <transcript>`** — post-flight. Scans the whole
+  transcript for the implementer questioning the contract and exits non-zero.
+
+Run the first before every dispatch and the second after every round. They are
+cheap, they do not interpret intent, and unlike a remembered rule they fail in a
+way you cannot skim past.
+
 ## Amendment (run 04): the implementer detects broken specs but does not stop
 
 The lifecycle diagram shows a **stop-and-report** path — the implementer noticing
