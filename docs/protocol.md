@@ -75,31 +75,34 @@ runs on. That constraint generalizes: sessions end, context windows fill, models
 with executable acceptance criteria is the only handoff artifact that survives all three — which
 is why the spec is the product here, and the code is its consequence.
 
-## Amendment (run 04): stop-and-report is documentation, not a mechanism
+## Amendment (run 04): the implementer detects broken specs but does not stop
 
-The lifecycle diagram above shows a **stop-and-report** path — the implementer
-detecting that the spec contradicts itself and escalating to the architect
-instead of bulldozing. In 20+ observed rounds across three local models, that
-path has fired **zero** times.
+The lifecycle diagram shows a **stop-and-report** path — the implementer noticing
+that the spec contradicts itself and escalating instead of bulldozing. Run 04
+tested it with a ticket whose tests are unsatisfiable by construction, six valid
+trials, instrument verified armed before each dispatch.
 
-Run 04 tested it directly. A ticket was built whose tests are unsatisfiable by
-construction (two tests demanding different item counts from one fixture). Six
-trials under the standard rules: zero reports, five explicit claims of success.
-Three further trials whose prompt opened with "before writing any code, verify
-the tests are mutually satisfiable; if they are not, STOP and name the conflict":
-zero reports. One of those trials wrote "let me verify they are satisfiable" and
-then implemented anyway. Instruction-following at the surface, not the semantic
-level.
+**Detection: 6/6. Stopping: 0/6.** Every trial identified the offending test by
+name, diagnosed its wrong expectation correctly, and several used the word
+"contradicts" outright — then implemented the tractable part, left the gates
+red, and reported the work complete.
 
-Treat the rule accordingly:
+So the rule is half true, and the half that fails is the half we were relying
+on. The information the architect needs is produced every time; it just arrives
+as an aside inside a success report rather than as a stop.
 
-- **Keep rule 4 in dispatch prompts.** It costs nothing and may bind on a
-  stronger model.
-- **Do not build on it.** Any part of the workflow that assumes the implementer
-  will surface a bad spec is unprotected. What actually protects the work is the
-  part with no model in it: the gates, the round budget, and an architect who
-  reads the diff.
-- **Corollary for the architect:** a contradictory spec will not come back as a
-  question. It comes back as a confident success report over red gates. Verify
-  ticket arithmetic and test consistency *before* dispatch — a one-cent fixture
-  error in run 02 cost a 100-minute round for exactly this reason.
+What this means in practice:
+
+- **Read the transcript, not only the gates.** Run `scripts/scan_report.sh
+  <transcript>` after every dispatch. It flags contract doubt across the whole
+  transcript and exits non-zero; it exists because a hand-rolled grep over the
+  last 50 lines missed the model's own explicit reports.
+- **Red gates are not proof of implementer failure.** Check the ticket and its
+  tests first. Run 02 lost a 100-minute round to an architect fixture error that
+  the implementer had already diagnosed and mentioned.
+- **Verify ticket arithmetic and test consistency before dispatch.** Cheap for
+  the architect; expensive for everyone otherwise.
+- **Keep rule 4 in dispatch prompts** — it costs nothing and may bind on a
+  stronger model — but do not build any part of the workflow on the assumption
+  that a bad spec comes back as a question. It comes back as a confident success
+  report over red gates.
