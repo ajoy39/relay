@@ -23,9 +23,11 @@ new module goes. If it touches exactly one module, write "Single module — not
 applicable" and move on.
 
 Why this section exists: a seam specified without a direction produced a
-circular dependency in 6/6 attempts (RecursionError or import failure) and
-0/2 green rounds; the same ticket with the direction stated went 4/4 green in
-10–27 minutes. Run 04.>
+circular dependency in 6/6 attempts by the local 30B (RecursionError or import
+failure), 0/2 green; the same ticket with the direction stated went 4/4 green.
+Run 04. NOTE (run 05): Haiku 4.5 solved the same cycle unaided 3/3. This section
+is scaffolding for a weak implementer — cheap to write, skippable when
+dispatching to a stronger one.>
 
 ## Invariants
 
@@ -94,10 +96,10 @@ Findings are tagged by how far we think they travel:
 
 | Guidance | Tag | Evidence |
 |---|---|---|
-| State the dependency direction for multi-module changes | **(G)** | 0/2 → 4/4, run 04 |
+| State the dependency direction for multi-module changes | **(S)** | 0/2 → 4/4 on the 30B (run 04); Haiku solved the cycle unaided 3/3, three different ways (run 05). Scaffolding for a weak implementer, not a general law |
 | Say how to run the tests; pre-refuse the packaging rabbit hole | **(G)** | total failure → 39/41, run 04 |
 | One *concern* per ticket — any number of files, provided their relationships are stated | **(G)** | run 02 split; ticket 0008 touched 3 files, green in 12 min |
-| Ask for an explicit report of a broken contract rather than a stop | **(G)** | detect 6/6, stop 0/6, run 04 |
+| Ask for an explicit report of a broken contract rather than a stop | **(S)** | 30B: detect 6/6, stop 0/6 (run 04). Haiku: stopped 3/3, one in 16 seconds (run 05). Keep the explicit-report ask — it is harmless above the floor and load-bearing below it |
 | Prefer whole-file rewrites over incremental edits | **(S)** | 4/4 vs 0/6, runs 02+04. Very likely wrong advice for a frontier model in a large codebase |
 | Budget ~90 minutes per round | **(S)** | 45-min rounds starve at ~15 tok/s; a faster host changes this entirely |
 | Expect the implementer not to commit at green when the round was messy | **(S)** | observed across runs 01–04 |
