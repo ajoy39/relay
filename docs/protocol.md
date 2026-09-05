@@ -92,34 +92,41 @@ Run the first before every dispatch and the second after every round. They are
 cheap, they do not interpret intent, and unlike a remembered rule they fail in a
 way you cannot skim past.
 
-## Amendment (run 04): the implementer detects broken specs but does not stop
+## Amendment (runs 04–05): stop-and-report works above a capability floor
 
 The lifecycle diagram shows a **stop-and-report** path — the implementer noticing
-that the spec contradicts itself and escalating instead of bulldozing. Run 04
-tested it with a ticket whose tests are unsatisfiable by construction, six valid
-trials, instrument verified armed before each dispatch.
+that the spec contradicts itself and escalating instead of bulldozing. Two runs
+tested it with a ticket whose tests are unsatisfiable by construction, with the
+instrument verified armed before every dispatch.
 
-**Detection: 6/6. Stopping: 0/6.** Every trial identified the offending test by
-name, diagnosed its wrong expectation correctly, and several used the word
-"contradicts" outright — then implemented the tractable part, left the gates
-red, and reported the work complete.
+| Implementer | Detected the contradiction | Stopped |
+|---|---|---|
+| qwen3-coder-30b (local) | 6/6 | **0/6** |
+| Claude Haiku 4.5 | 3/3 | **3/3** |
 
-So the rule is half true, and the half that fails is the half we were relying
-on. The information the architect needs is produced every time; it just arrives
-as an aside inside a success report rather than as a stop.
+An earlier version of this amendment concluded from the 30B alone that the path
+"is documentation, not a mechanism." That was wrong — it was a claim about one
+implementer stated as a claim about the protocol. Haiku stopped every time, once
+in 16 seconds and 3 tool calls, naming both conflicting tests and writing no
+code.
 
-What this means in practice:
+The difference is not perception. The 30B identified the offending test and
+diagnosed its wrong expectation correctly every single time — and implemented
+anyway, reporting success over red gates. Detecting a broken contract and
+treating that as a reason to stop are separate capabilities, and the second one
+resisted four escalating styles of feedback.
 
-- **Read the transcript, not only the gates.** Run `scripts/scan_report.sh
-  <transcript>` after every dispatch. It flags contract doubt across the whole
-  transcript and exits non-zero; it exists because a hand-rolled grep over the
-  last 50 lines missed the model's own explicit reports.
+**What this means in practice:**
+
+- **Know which side of the floor your implementer is on**, and configure
+  accordingly. Above it, the escalation path is real and you can act on reports.
+  Below it, it does not exist and nothing should be built on it.
+- **Below the floor, read the transcript, not only the gates.** Run
+  `scripts/scan_report.sh <transcript>` after every dispatch — the 30B's reports
+  are accurate, they just arrive as an aside inside a false success claim.
 - **Red gates are not proof of implementer failure.** Check the ticket and its
-  tests first. Run 02 lost a 100-minute round to an architect fixture error that
-  the implementer had already diagnosed and mentioned.
-- **Verify ticket arithmetic and test consistency before dispatch.** Cheap for
-  the architect; expensive for everyone otherwise.
-- **Keep rule 4 in dispatch prompts** — it costs nothing and may bind on a
-  stronger model — but do not build any part of the workflow on the assumption
-  that a bad spec comes back as a question. It comes back as a confident success
-  report over red gates.
+  tests first. Run 02 lost a 100-minute round to an architect fixture error the
+  implementer had already diagnosed.
+- **Verify ticket arithmetic and test consistency before dispatch** —
+  `scripts/check_ticket.sh` does the mechanical half. Cheap for the architect,
+  expensive for everyone otherwise.
