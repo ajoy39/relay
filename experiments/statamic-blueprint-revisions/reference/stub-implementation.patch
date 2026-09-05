@@ -1,0 +1,326 @@
+diff --git a/app/Http/Controllers/BlueprintRevisionController.php b/app/Http/Controllers/BlueprintRevisionController.php
+new file mode 100644
+index 0000000..13abf07
+--- /dev/null
++++ b/app/Http/Controllers/BlueprintRevisionController.php
+@@ -0,0 +1,53 @@
++<?php
++
++namespace App\Http\Controllers;
++
++use App\Models\BlueprintRevision;
++use App\Support\BlueprintDiff;
++use Statamic\Facades\Blueprint;
++
++class BlueprintRevisionController extends Controller
++{
++    public function index(string $namespace, string $handle)
++    {
++        return response()->json([
++            'revisions' => $this->query($namespace, $handle)->get()
++                ->map(fn ($r) => ['id' => $r->id, 'created_at' => $r->created_at->toIso8601String()])
++                ->values(),
++        ]);
++    }
++
++    public function diff(string $namespace, string $handle, string $id)
++    {
++        $revision = $this->query($namespace, $handle)->findOrFail($id);
++        $blueprint = $this->blueprint($namespace, $handle);
++
++        return response()->json([
++            'changes' => BlueprintDiff::between($blueprint->contents(), $revision->contents),
++        ]);
++    }
++
++    public function restore(string $namespace, string $handle, string $id)
++    {
++        $revision = $this->query($namespace, $handle)->findOrFail($id);
++
++        // Saving fires BlueprintSaved, which records the restore as its own
++        // revision — so a restore can itself be undone.
++        $this->blueprint($namespace, $handle)->setContents($revision->contents)->save();
++
++        return response()->json(['restored' => true]);
++    }
++
++    private function query(string $namespace, string $handle)
++    {
++        return BlueprintRevision::where('namespace', $namespace)
++            ->where('handle', $handle)
++            ->orderByDesc('created_at')
++            ->orderByDesc('id');
++    }
++
++    private function blueprint(string $namespace, string $handle)
++    {
++        return Blueprint::find($namespace.'.'.$handle) ?? abort(404);
++    }
++}
+diff --git a/app/Http/Middleware/InjectBlueprintRevisions.php b/app/Http/Middleware/InjectBlueprintRevisions.php
+new file mode 100644
+index 0000000..0cf4051
+--- /dev/null
++++ b/app/Http/Middleware/InjectBlueprintRevisions.php
+@@ -0,0 +1,108 @@
++<?php
++
++namespace App\Http\Middleware;
++
++use App\Models\BlueprintRevision;
++use Closure;
++use Illuminate\Http\Request;
++
++class InjectBlueprintRevisions
++{
++    public function handle(Request $request, Closure $next)
++    {
++        $response = $next($request);
++
++        if (! $request->isMethod('GET') || ! ($target = $this->target($request))) {
++            return $response;
++        }
++
++        $content = $response->getContent();
++        if (! is_string($content) || ! str_contains($content, '</body>')) {
++            return $response;
++        }
++
++        [$namespace, $handle] = $target;
++        $html = $this->panel($namespace, $handle);
++
++        return $response->setContent(str_replace('</body>', $html.'</body>', $content));
++    }
++
++    /** @return array{0:string,1:string}|null */
++    private function target(Request $request): ?array
++    {
++        $segments = $request->segments();           // cp/fields/blueprints/collections/pages/page/edit
++        $at = array_search('blueprints', $segments, true);
++        if ($at === false || end($segments) !== 'edit') {
++            return null;
++        }
++
++        $parts = array_slice($segments, $at + 1, -1);
++        if (count($parts) < 2) {
++            return null;
++        }
++
++        $handle = array_pop($parts);
++
++        return [implode('.', $parts), $handle];
++    }
++
++    private function panel(string $namespace, string $handle): string
++    {
++        $revisions = BlueprintRevision::where('namespace', $namespace)
++            ->where('handle', $handle)
++            ->orderByDesc('created_at')
++            ->orderByDesc('id')
++            ->get();
++
++        $rows = '';
++        foreach ($revisions as $r) {
++            $id = e($r->id);
++            $rows .= '<li data-revision-id="'.$id.'" style="margin:.25rem 0">'
++                .'<time>'.e($r->created_at->toDayDateTimeString()).'</time> '
++                .'<button type="button" data-revision-preview="'.$id.'">Preview</button> '
++                .'<button type="button" data-revision-restore="'.$id.'">Restore</button>'
++                .'<div data-revision-preview-target="'.$id.'"></div>'
++                .'</li>';
++        }
++
++        $base = e(url('/cp/blueprint-revisions/'.$namespace.'/'.$handle));
++
++        return <<<HTML
++<section id="blueprint-revisions" style="position:relative;z-index:9999;padding:1rem;background:#fff">
++<h2>Revisions</h2>
++<ul style="list-style:none;padding:0">{$rows}</ul>
++</section>
++<script>
++(function () {
++  var base = '{$base}';
++  function token() {
++    var m = document.querySelector('meta[name="csrf-token"]');
++    return m ? m.getAttribute('content') : '';
++  }
++  document.querySelectorAll('[data-revision-preview]').forEach(function (el) {
++    el.addEventListener('click', function () {
++      var id = el.getAttribute('data-revision-preview');
++      fetch(base + '/' + id + '/diff', { headers: { Accept: 'application/json' } })
++        .then(function (r) { return r.json(); })
++        .then(function (d) {
++          var target = document.querySelector('[data-revision-preview-target="' + id + '"]');
++          target.textContent = (d.changes || []).map(function (c) {
++            return c.path + ': ' + JSON.stringify(c.from) + ' → ' + JSON.stringify(c.to);
++          }).join(' | ') || 'No changes';
++        });
++    });
++  });
++  document.querySelectorAll('[data-revision-restore]').forEach(function (el) {
++    el.addEventListener('click', function () {
++      var id = el.getAttribute('data-revision-restore');
++      fetch(base + '/' + id + '/restore', {
++        method: 'POST',
++        headers: { Accept: 'application/json', 'X-CSRF-TOKEN': token() },
++      }).then(function () { window.location.reload(); });
++    });
++  });
++})();
++</script>
++HTML;
++    }
++}
+diff --git a/app/Models/BlueprintRevision.php b/app/Models/BlueprintRevision.php
+new file mode 100644
+index 0000000..022396a
+--- /dev/null
++++ b/app/Models/BlueprintRevision.php
+@@ -0,0 +1,14 @@
++<?php
++
++namespace App\Models;
++
++use Illuminate\Database\Eloquent\Model;
++
++class BlueprintRevision extends Model
++{
++    public $timestamps = false;
++
++    protected $guarded = [];
++
++    protected $casts = ['contents' => 'array', 'created_at' => 'datetime'];
++}
+diff --git a/app/Providers/BlueprintRevisionServiceProvider.php b/app/Providers/BlueprintRevisionServiceProvider.php
+new file mode 100644
+index 0000000..58dd0f7
+--- /dev/null
++++ b/app/Providers/BlueprintRevisionServiceProvider.php
+@@ -0,0 +1,38 @@
++<?php
++
++namespace App\Providers;
++
++use App\Http\Controllers\BlueprintRevisionController;
++use App\Http\Middleware\InjectBlueprintRevisions;
++use App\Models\BlueprintRevision;
++use Illuminate\Support\Facades\Event;
++use Illuminate\Support\Facades\Route;
++use Illuminate\Support\ServiceProvider;
++use Statamic\Events\BlueprintSaved;
++use Statamic\Statamic;
++
++class BlueprintRevisionServiceProvider extends ServiceProvider
++{
++    public function boot(): void
++    {
++        Statamic::pushCpRoutes(function () {
++            Route::middleware('statamic.cp.authenticated')
++                ->prefix('blueprint-revisions/{namespace}/{handle}')->group(function () {
++                Route::get('/', [BlueprintRevisionController::class, 'index']);
++                Route::get('{id}/diff', [BlueprintRevisionController::class, 'diff']);
++                Route::post('{id}/restore', [BlueprintRevisionController::class, 'restore']);
++            });
++        });
++
++        $this->app['router']->pushMiddlewareToGroup('statamic.cp.authenticated', InjectBlueprintRevisions::class);
++
++        Event::listen(BlueprintSaved::class, function (BlueprintSaved $event) {
++            BlueprintRevision::create([
++                'namespace' => $event->blueprint->namespace(),
++                'handle' => $event->blueprint->handle(),
++                'contents' => $event->blueprint->contents(),
++                'created_at' => now(),
++            ]);
++        });
++    }
++}
+diff --git a/app/Support/BlueprintDiff.php b/app/Support/BlueprintDiff.php
+new file mode 100644
+index 0000000..20c1379
+--- /dev/null
++++ b/app/Support/BlueprintDiff.php
+@@ -0,0 +1,39 @@
++<?php
++
++namespace App\Support;
++
++class BlueprintDiff
++{
++    /** Changes needed to turn $from into $to, as dot-path entries. */
++    public static function between(array $from, array $to): array
++    {
++        $a = self::flatten($from);
++        $b = self::flatten($to);
++
++        $changes = [];
++        foreach (array_keys($a + $b) as $path) {
++            $before = $a[$path] ?? null;
++            $after = $b[$path] ?? null;
++            if ($before !== $after) {
++                $changes[] = ['path' => $path, 'from' => $before, 'to' => $after];
++            }
++        }
++
++        return $changes;
++    }
++
++    private static function flatten(array $value, string $prefix = ''): array
++    {
++        $flat = [];
++        foreach ($value as $key => $item) {
++            $path = $prefix === '' ? (string) $key : $prefix.'.'.$key;
++            if (is_array($item) && $item !== []) {
++                $flat += self::flatten($item, $path);
++            } else {
++                $flat[$path] = is_array($item) ? [] : $item;
++            }
++        }
++
++        return $flat;
++    }
++}
+diff --git a/bootstrap/providers.php b/bootstrap/providers.php
+index fc94ae6..6decb77 100644
+--- a/bootstrap/providers.php
++++ b/bootstrap/providers.php
+@@ -1,7 +1,9 @@
+ <?php
+ 
+ use App\Providers\AppServiceProvider;
++use App\Providers\BlueprintRevisionServiceProvider;
+ 
+ return [
+     AppServiceProvider::class,
++    BlueprintRevisionServiceProvider::class,
+ ];
+diff --git a/database/migrations/2026_09_05_000000_create_blueprint_revisions_table.php b/database/migrations/2026_09_05_000000_create_blueprint_revisions_table.php
+new file mode 100644
+index 0000000..4a00983
+--- /dev/null
++++ b/database/migrations/2026_09_05_000000_create_blueprint_revisions_table.php
+@@ -0,0 +1,24 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::create('blueprint_revisions', function (Blueprint $table) {
++            $table->id();
++            $table->string('namespace')->index();
++            $table->string('handle')->index();
++            $table->longText('contents');
++            $table->timestamp('created_at')->nullable();
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::dropIfExists('blueprint_revisions');
++    }
++};
