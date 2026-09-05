@@ -100,10 +100,10 @@ Findings are tagged by how far we think they travel:
 | Say how to run the tests; pre-refuse the packaging rabbit hole | **(G)** | total failure → 39/41, run 04 |
 | One *concern* per ticket — any number of files, provided their relationships are stated | **(G)** | run 02 split; ticket 0008 touched 3 files, green in 12 min |
 | Ask for an explicit report of a broken contract rather than a stop | **(S)** | 30B: detect 6/6, stop 0/6 (run 04). Haiku: stopped 3/3, one in 16 seconds (run 05). Keep the explicit-report ask — it is harmless above the floor and load-bearing below it |
-| Prefer whole-file rewrites over incremental edits | **(S)** | 4/4 vs 0/6, runs 02+04. Very likely wrong advice for a frontier model in a large codebase |
-| Budget ~90 minutes per round | **(S)** | 45-min rounds starve at ~15 tok/s; a faster host changes this entirely |
-| Expect the implementer not to commit at green when the round was messy | **(S)** | observed across runs 01–04 |
-| Treat self-reports as unreliable in both directions | **(S?)** | strongly observed here; frontier models are better but not immune |
+| Prefer whole-file rewrites over incremental edits | **(S)** | 30B: 4/4 vs 0/6 (runs 02+04). Haiku: 6/6 green either way, and **patched incrementally even when told to rewrite** (run 06). Inert above the floor; likely counterproductive for a strong model in a large codebase, where a needless rewrite is review burden and merge-conflict surface |
+| Budget ~90 minutes per round | **(S)** | 45-min rounds starve at ~15 tok/s. Haiku finished the same ticket class in 1–3.5 min (runs 05–06). A property of the host, not of agentic work |
+| Expect the implementer not to commit at green when the round was messy | **(S)** | 30B: needed architect commits repeatedly (runs 01–04). Haiku: 6/6 committed correctly, nothing left uncommitted (run 06) |
+| Treat self-reports as unreliable in both directions | **(S)** | 30B: false success claims routine. Haiku: 6/6 reports matched architect-run gates exactly (run 06). NOTE: only tested on rounds that succeeded — the 30B's worst reports came from failing rounds, and that case is untested |
 
 The architect decides how much structure to specify. There is a real line
 between *specifying* and *dictating* — specifying the layering meant the
