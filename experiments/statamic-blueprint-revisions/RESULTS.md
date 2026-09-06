@@ -1,6 +1,6 @@
 # Run 07 — results
 
-93 scored trials of Haiku implementing a blueprint revision tracker for
+96 scored trials of Haiku implementing a blueprint revision tracker for
 Statamic (Laravel, `statamic/eloquent-driver`), judged by six independent
 Playwright assertions against the control panel plus an independent database
 re-read. Every score below was measured by the architect, not self-reported.
@@ -15,7 +15,7 @@ the scaffolding around them.
 | A | contract only, no acceptance command | 24 | **0** | 16 | 0.92 |
 | B | + the acceptance command | 23 | 2 | 8 | 2.57 |
 | C | full ticket (structure, stop-and-report) | 23 | 5 | 9 | 2.61 |
-| D | + the acceptance tests, readable | 23 | 4 | 9 | 2.57 |
+| D | + the acceptance tests, readable | 24 | 5 | 9 | 2.63 |
 
 **The ladder is not ordered.** B, C and D are indistinguishable — means within
 0.04 of each other, greens 2/5/4 on n≈23. The one real separation is A versus

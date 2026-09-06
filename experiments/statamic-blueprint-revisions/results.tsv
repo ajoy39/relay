@@ -95,3 +95,6 @@ t091	C	6/6	GREEN	intact	files=9
 t093	A	0/6	RED	intact	files=12;out-of-scope=tests/TestCase.php
 t090	B	4/6	RED	intact	files=8
 t092	D	4/6	RED	intact	files=10
+t095	C	4/6	RED	intact	files=15;out-of-scope=package-lock.json,public/build/assets/site-B-Oa6b95.css,public/build/assets/site-l0sNRNKZ.js,public/build/manifest.json
+t094	B	4/6	RED	intact	files=10;out-of-scope=package-lock.json,public/build/assets/site-B-Oa6b95.css,public/build/assets/site-l0sNRNKZ.js,public/build/manifest.json
+t096	D	6/6	GREEN	intact	files=9;rebuilt from archived patch, 6/6 twice on idle box
