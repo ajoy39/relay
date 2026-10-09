@@ -253,6 +253,8 @@ experiment itself, and every guard earned its place.
 - Never record a run that produced no verdict.
 - Re-run any score at the green boundary; a flaky drop of one test is the most
   expensive error available.
+- Give each trial its own unwritable `vendor/` — on macOS an APFS clone,
+  sealed and checked with `verify_vendor.sh` — and never a symlink.
 - Bind-mount shared `vendor/` read-only rather than symlinking (Composer
   resolves its base directory from the realpath, so a symlink makes trials
   autoload the master app's classes).

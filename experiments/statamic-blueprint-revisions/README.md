@@ -87,15 +87,32 @@ the gate reported a result it had not measured.
 ## Isolation
 
 `scripts/new_trial.sh <name>` gives each trial a git worktree of the app, its
-own SQLite database, its own port, and `vendor/` **bind-mounted read only**.
-Not symlinked: Composer resolves its base directory from the realpath of
-`vendor/composer`, so a symlinked vendor makes the trial autoload the master
-app's classes and silently score its neighbour's work. Read-only also enforces
-the ticket's "no changes to vendor" invariant mechanically — an attempted write
-fails rather than corrupting every other trial.
+own SQLite database, its own port, and its own **unwritable** `vendor/`:
 
-`scripts/verify_spec.sh` checksums the harness before scoring: a trial that
-edits the gate is a finding, not a pass.
+- **Linux:** a read-only bind mount of the master's `vendor/`. Cannot be
+  written at all, even by root.
+- **macOS:** an APFS clone (`cp -cR`) — copy-on-write, so near-free on disk —
+  sealed with `chmod -R a-w`. A clone is writable underneath, so it is also
+  *verified*: see `verify_vendor.sh` below.
+
+Never symlinked: Composer resolves its base directory from the realpath of
+`vendor/composer`, so a symlinked vendor makes the trial autoload the master
+app's classes and silently score its neighbour's work. Unwritable also enforces
+the ticket's "no changes to vendor" invariant — an attempted write fails rather
+than corrupting every other trial.
+
+Before scoring, two checks, each of which treats a change as a finding, not a
+pass:
+
+- `scripts/verify_spec.sh` checksums the harness — a trial that edits the gate.
+- `scripts/verify_vendor.sh <trial>` refuses any trial whose `vendor/` changed
+  after `new_trial.sh` sealed it. It compares **ctime**, not mtime: ctime moves
+  on every write, chmod, add, delete and rename, and an unprivileged process
+  cannot set it backwards — so undoing the seal, or editing a file and
+  backdating it with `touch -r`, is still caught. Reading files is not.
+
+Both exit 0 intact, 1 changed, 3 BROKEN (a missing checksum file or seal is a
+setup fault and says so, rather than reading as tampering).
 
 ## Not in this repository
 
@@ -117,21 +134,21 @@ The layout it expects:
 | `$LAB_ROOT/reference/spec.sha256` | checksums of `$LAB_ROOT/spec`, for `verify_spec.sh` | `cd $LAB_ROOT/spec && sha256sum * arms/* > ../reference/spec.sha256` |
 | `$LAB_ROOT/harness` | `node_modules` with `@playwright/test` | `npm i --prefix $LAB_ROOT/harness @playwright/test` |
 | `$LAB_ROOT/trials/` | one worktree per trial, created by `new_trial.sh` | generated |
+| `$LAB_ROOT/trials/<name>.vendor-sealed` | the seal `verify_vendor.sh` compares against | stamped by `new_trial.sh` |
 
 Set `PW_CHROMIUM_PATH` only to use a preinstalled Chromium; otherwise run
 `npx playwright install chromium` once.
 
 Two things carried over from run 07 that a rebuild must not quietly drop:
 
-- **Trial isolation is Linux-only as written.** `new_trial.sh` bind-mounts
-  `vendor/` read-only, and refuses to run on anything but Linux. **Do not
-  replace the mount with a symlink** — composer resolves its base directory from
-  the realpath, so trials would autoload the master app's classes. On macOS the
-  likely answer is a per-trial APFS clone (`cp -c`, copy-on-write, near-free on
-  disk), but a clone is writable, so it loses the mechanical "no changes to
-  `vendor/**`" invariant and would need a post-trial vendor checksum in its
-  place. That is a change to the instrument, and it has not been built or
-  validated.
+- **Trial isolation runs on Linux (bind mount) and macOS (APFS clone), and
+  refuses anything else** rather than fall back to a symlink. Both branches were
+  tested on 2026-10-09 under bash 3.2 — the macOS branch as a non-root user,
+  with `cp -c` stood in for by Linux's copy-on-write `cp --reflink`. **Apple's
+  real `clonefile` has not yet run.** On the first macOS rebuild, confirm the
+  clone is genuinely copy-on-write: keep `LAB_ROOT` on the same APFS volume as
+  the app, and check that creating a trial does not consume vendor-sized disk
+  (`df` before and after).
 - **The gate is not out of a trial's reach.** `$LAB_ROOT/spec` sits two
   directories above every trial, and in run 07 trials found `gate.sh` and ran
   it — which is why arm A was not blind. `gate.sh` logs every invocation to
