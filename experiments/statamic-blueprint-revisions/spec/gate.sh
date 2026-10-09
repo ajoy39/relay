@@ -3,6 +3,14 @@
 set -uo pipefail
 APP="${1:-/home/user/lab/app}"; PORT="${2:-8000}"
 S=/home/user/lab/spec
+
+# Audit EVERY invocation, including a trial running the gate on itself. Arm A's
+# premise is "no checker available" — but gate.sh is world-readable one directory
+# up from a trial's worktree, and in run 07 trials found it and ran it. This file
+# is the only thing that distinguishes a blind arm from a confounded one. Without
+# it the confound is invisible and the arm's result reads as a capability finding.
+echo "$(date +%s) $APP $$" >> /tmp/gate-audit.log
+
 cd "$APP" || { echo "GATE: BROKEN — no app dir"; exit 3; }
 
 # hermetic start: restore the pristine DB so revision history never accumulates
@@ -56,6 +64,11 @@ echo "SCORE: $SCORE"
 # independent post-check: did restore actually change stored contents?
 AFTER=$(php artisan tinker --execute="require '$S/check_contents.php';" 2>&1 | tail -1 | tr -d '\r')
 kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+# artisan serve spawns a `php -S` child that SURVIVES killing the wrapper and
+# goes on holding the port, so the next run on this port refuses to start and
+# scores NORESULT. Cost one trial (s050) before it was diagnosed. The trailing
+# space in the pattern is load-bearing: without it, port 850 also kills 8500.
+pkill -f "php.*-S 127.0.0.1:$PORT " 2>/dev/null
 
 echo "post-restore body display = $AFTER"
 if [ "$RC" -eq 0 ] && [ "$AFTER" = "Body" ]; then echo "GATE: GREEN"; exit 0; fi

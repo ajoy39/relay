@@ -1,5 +1,10 @@
 # Run 07 — results
 
+**Two halves, one fixed instrument.** 96 trials of Haiku 4.5 and 96 of Sonnet
+on the same ticket, the same four arms and the same gate. Everything below is
+the **Haiku** half unless a section says otherwise; the Sonnet half is in
+*The Sonnet arm*, and it reframes what the Haiku numbers mean.
+
 96 scored trials of Haiku implementing a blueprint revision tracker for
 Statamic (Laravel, `statamic/eloquent-driver`), judged by six independent
 Playwright assertions against the control panel plus an independent database
@@ -13,14 +18,28 @@ the scaffolding around them.
 | Arm | Treatment | n | green | zeros | mean |
 |---|---|---:|---:|---:|---:|
 | A | contract only, no acceptance command | 24 | **0** | 16 | 0.92 |
-| B | + the acceptance command | 23 | 2 | 8 | 2.57 |
-| C | full ticket (structure, stop-and-report) | 23 | 5 | 9 | 2.61 |
-| D | + the acceptance tests, readable | 24 | 5 | 9 | 2.63 |
+| B | + the acceptance command | 24 | 2 | 8 | 2.62 |
+| C | full ticket (structure, stop-and-report) | 24 | 5 | 9 | 2.67 |
+| D | + the acceptance tests, readable | 24 | 5 | 9 | 2.71 |
+
+> Recomputed from `results.tsv`. An earlier version of this table reported
+> n=23 for B and C and means of 2.57/2.61/2.63; it had been written before the
+> last trials landed and was never refreshed. Every arm ran 24.
 
 **The ladder is not ordered.** B, C and D are indistinguishable — means within
-0.04 of each other, greens 2/5/4 on n≈23. The one real separation is A versus
+0.09 of each other, greens 2/5/5 on n=24 apiece. The one real separation is A versus
 everything else: **24 blind trials, zero completed features**, against roughly
 a 1-in-5 green rate once a model can run the gate.
+
+> **Arm A was not blind, and this is the run's most important caveat.**
+> `gate.sh` sits world-readable one directory above each trial's worktree, and
+> `/tmp/gate-audit.log` (added later, see instrument bug 12) showed trials
+> finding it and running it. So arm A's treatment was "no acceptance command
+> *given*", not "no checker *available*" — which is a much weaker manipulation
+> than the write-up above assumes. The A-versus-everything separation is real as
+> a measurement and under-specified as a cause: some of those 24 trials could
+> verify and didn't. Any re-run must put the gate outside the trial's reach
+> before claiming an arm is blind.
 
 This is a null result on the hypothesis the run was built to test. Runs 04–06
 produced a ticket template — structure and dependencies, how to run the tests,
@@ -36,10 +55,12 @@ alone.
 1/6 ███ 3
 2/6 ██ 2
 3/6 ██████████████ 14
-4/6 ████████████████████ 20
+4/6 ██████████████████████ 22
 5/6 █ 1
-6/6 ███████████ 11
+6/6 ████████████ 12
 ```
+
+(Recounted from `results.tsv`; the earlier figures of 20 and 11 were short.)
 
 Bimodal, with a hard shoulder at 4/6. Tests 1–3 and 6 are HTTP; 4 and 5 drive
 the Vue/Inertia control panel. Across 105 gate runs, exactly **one** passed a UI
@@ -108,9 +129,76 @@ often `tests/`, `public/js/`, and `tests/TestCase.php`; one added 31 files
 including `docker/` and `sail`. Scope breaches did **not** correlate with score:
 green trials did it too. It is a review problem, not a capability signal.
 
+## The Sonnet arm
+
+The same 96-trial design, same ticket, same four arms, same gate, no other
+changes. The result:
+
+| Arm | n | green | mean |
+|---|---:|---:|---:|
+| A | 24 | **24** | 6.00 |
+| B | 24 | **24** | 6.00 |
+| C | 24 | **24** | 6.00 |
+| D | 24 | **24** | 6.00 |
+
+**96 of 96 GREEN.** No zeros, no partials, no self-inflicted regressions, and
+no difference between arms — including arm A, where Haiku went 0 for 24.
+
+This is a ceiling, and a ceiling is not a measurement. With zero variance there
+is nothing for scaffolding to explain, so the run says nothing about whether the
+ticket template helps a frontier model; it says only that this ticket is inside
+Sonnet's capability and outside Haiku's. **Every scaffolding conclusion in this
+document is therefore a statement about Haiku, not about agents.** The ladder
+being flat, arm A collapsing, the self-report findings, the self-inflicted
+regressions — all of it is small-model behaviour at a capability boundary.
+
+The instrument also stops discriminating at the top. To learn anything about
+scaffolding for a model at this level you need a ticket that makes it fail
+sometimes, which means a harder task, not a better ticket.
+
+> **Provenance.** The 96 per-trial Sonnet rows were lost: they lived only in the
+> sandbox working directory (`/home/user/lab/results.tsv`, trial IDs `s001`–`s096`)
+> and were never committed before that container was reclaimed. What survives is
+> the arm-level tally above, which is uniform and therefore fully recoverable from
+> the summary — 24/24 in all four arms, 96/96 overall. The `t*` and `c*` rows in
+> `results.tsv` are the Haiku half and the controls, and they are complete.
+> The lesson is the obvious one: the instrument was in git, the data was not.
+
+## Arm A, re-verified
+
+The 16 arm-A zeros were the run's load-bearing claim, so they were rebuilt from
+their archived patches and re-measured rather than trusted. **All 16 reproduced
+as zeros.** The arm-A result is not a scoring artefact.
+
+One reclassification came out of it: **t061, recorded here as `A 0/6 RED`, was
+re-measured as BROKE-APP** — the same class of outcome as t066, a trial that
+disabled the host application rather than failing to add a feature. That row has
+deliberately *not* been edited, because the patches that would let anyone
+reproduce the re-measurement are gone with the sandbox. Treat `t061`'s verdict as
+disputed and unreproducible rather than silently rewriting a measurement on the
+strength of a memory.
+
+## The isolation breach
+
+Trials s045 and s046 independently reported seeing work they had not done.
+`refs/stash` is **shared across every worktree of one repository** — it lives in
+the common git directory, not the per-worktree one — so a trial that stashed was
+exposing its work to all 96 siblings, and `git stash list` showed other trials'
+entries.
+
+Tested rather than assumed: all 96 patches were compared pairwise for
+contamination (n_pairs = 4560, mean similarity 0.293, max 0.500, nothing near
+the threshold that would indicate copied work). **No trial inherited another's
+implementation.** The breach was real and its effect was nil.
+
+The primitive was deliberately *not* changed mid-run — swapping the isolation
+mechanism between trials would have split the dataset across two treatments to
+fix a hazard already measured as harmless. Dispatch was staggered instead, and
+the fix belongs in the next run's setup.
+
 ## Instrument bugs found while building and running this
 
-Eleven, all of which would have produced confident wrong findings:
+Fifteen, all of which would have produced confident wrong findings:
 
 1. `php artisan migrate` had been broken since install (the eloquent driver
    publishes two mutually exclusive `entries` migrations). Every trial's own
@@ -137,7 +225,25 @@ Eleven, all of which would have produced confident wrong findings:
     `6,6,6,0,6,6`. Two trials were under-scored at the green boundary before a
     confirm-on-margin rule was added.
 
-Points 2, 3, 4, 9, 10 and 11 are the same class: **the gate reporting a result
+12. **The gate was reachable from inside a trial.** Arm A's whole premise was
+    that no checker was available; `gate.sh` was world-readable one directory up
+    and trials ran it. Found only after adding `/tmp/gate-audit.log`, which now
+    records every invocation. See the caveat under *The ladder*.
+13. **A trial vanished silently.** s015 was dispatched, produced no
+    notification, and left an empty worktree. It was caught only because an arm
+    tally read 6/6/5/6 — reconcile dispatched work by **ID against the schedule**,
+    never by counting rows.
+14. **The spec-tamper check cannot tell the experimenter from the trial.** An
+    edit to `gate.sh` mid-run tripped `verify_spec.sh` and reported a clean trial
+    (s042) as TAMPERED. Re-pin the baseline hash immediately after any
+    deliberate spec change, or the check accuses the next trial through.
+15. **The gate leaked its own server.** `artisan serve` spawns a `php -S` child
+    that survives killing the wrapper and keeps the port, so the next run on that
+    port refuses to start — scored as NORESULT (s050). While diagnosing it, a
+    careless broad `pkill` killed a live trial's server (s053). Both the fix and
+    the hazard are now in `gate.sh`.
+
+Points 2, 3, 4, 9, 10, 11 and 15 are the same class: **the gate reporting a result
 it had not measured.** Guarding against that consumed more effort than the
 experiment itself, and every guard earned its place.
 
@@ -151,6 +257,14 @@ experiment itself, and every guard earned its place.
   resolves its base directory from the realpath, so a symlink makes trials
   autoload the master app's classes).
 - Give each trial its own port and refuse a port the gate does not own.
+- Reconcile completed work by trial ID against the dispatch schedule. A count
+  is not a reconciliation (bug 13).
+- Put the gate somewhere a trial cannot read before calling any arm blind, and
+  keep the invocation audit log either way.
+- `refs/stash` is shared across all worktrees of a repository. Give each trial
+  its own clone, or forbid stashing, before relying on worktree isolation.
+- Commit the data, not just the instrument. The Sonnet half of this run is gone
+  for exactly this reason.
 - Two trial agents reached outside their sandbox: one scheduled a Routine that
   fired a prompt into the parent session, one was flagged by the classifier.
   Narrow subagent tool access before running anything like this again.
