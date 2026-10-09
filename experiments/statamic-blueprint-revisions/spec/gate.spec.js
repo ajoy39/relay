@@ -16,6 +16,8 @@ test.beforeAll(async ({ browser }) => {
   const context = await browser.newContext({ storageState: undefined });
   const page = await context.newPage();
   await page.goto(`${BASE}/cp/auth/login`, { waitUntil: 'domcontentloaded' });
+  // Throwaway account: it exists only in the lab's local Statamic install (seeded
+  // into pristine.sqlite) and is used nowhere real. Not a secret, so not an env var.
   await page.fill('input[name="email"]', 'lab@example.test');
   await page.fill('input[name="password"]', 'labpassword123');
   await Promise.all([

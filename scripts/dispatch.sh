@@ -46,10 +46,19 @@ trap 'rm -f "$PROMPT_FILE"' EXIT
 } > "$PROMPT_FILE"
 
 BRANCH="ticket/${TICKET_NUM}"
+# Each ticket gets its own worktree, so a dispatch never switches the branch of
+# the checkout you — or another session — are working in. Later rounds of the
+# same ticket reuse it. Rooted at the MAIN worktree even if this script is run
+# from inside a ticket worktree, so worktrees never nest.
+COMMON="$(cd "$(git rev-parse --git-common-dir)" && pwd)"
+WT="$(dirname "$COMMON")/.worktrees/ticket-${TICKET_NUM}"
+if [ -d "$WT" ]; then WT_STATE="reuse existing"
+elif git show-ref --verify --quiet "refs/heads/${BRANCH}"; then WT_STATE="new, on existing branch"
+else WT_STATE="new, branch created from HEAD ($(git rev-parse --short HEAD))"; fi
 CMD=(opencode run --model "local/${RELAY_MODEL}" "$(cat "$PROMPT_FILE")")
 
 if [ "$MODE" = "--dry-run" ]; then
-  echo "would checkout: ${BRANCH}"
+  echo "would use worktree: ${WT} (${BRANCH}; ${WT_STATE})"
   echo "would run: opencode run --model local/${RELAY_MODEL} <prompt below>"
   echo "---- prompt ----"
   cat "$PROMPT_FILE"
@@ -59,8 +68,27 @@ fi
 command -v opencode >/dev/null 2>&1 || {
   echo "opencode not installed — see docs/setup-harness.md" >&2; exit 1; }
 
-git checkout -B "$BRANCH"
-echo "dispatching ${TICKET} to local/${RELAY_MODEL} on ${BRANCH} ..."
-time "${CMD[@]}"
+# Never `git checkout -B`. That resets the branch to HEAD, so started from main
+# it silently discarded every earlier round's commits on the ticket branch.
+case "$WT_STATE" in
+  "reuse existing") : ;;
+  "new, on existing branch") git worktree add --quiet "$WT" "$BRANCH" ;;
+  *) git worktree add --quiet -b "$BRANCH" "$WT" HEAD ;;
+esac
+
+# Worktrees share refs/stash with every other checkout of this repo (run 07's
+# isolation breach). The prompt is the experimental treatment, so it is left
+# alone and the stash is checked instead.
+stash_count() { git stash list | wc -l | tr -d ' '; }
+stash_before=$(stash_count)
+echo "dispatching ${TICKET} to local/${RELAY_MODEL} on ${BRANCH} in ${WT} ..."
+round_rc=0
+( cd "$WT" && time "${CMD[@]}" ) || round_rc=$?
+stash_after=$(stash_count)
+if [ "$stash_after" != "$stash_before" ]; then
+  echo "WARNING: the stash changed during this round (${stash_before} -> ${stash_after} entries)." >&2
+  echo "refs/stash is shared by every worktree of this repo; check 'git stash list' before trusting other checkouts." >&2
+fi
 echo
-echo "dispatch round complete — now: scripts/gates.sh, then scripts/review.sh main"
+echo "dispatch round complete — now: (cd ${WT} && scripts/gates.sh && scripts/review.sh main)"
+exit "$round_rc"

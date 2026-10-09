@@ -87,15 +87,55 @@ the gate reported a result it had not measured.
 ## Isolation
 
 `scripts/new_trial.sh <name>` gives each trial a git worktree of the app, its
-own SQLite database, its own port, and `vendor/` **bind-mounted read only**.
-Not symlinked: Composer resolves its base directory from the realpath of
-`vendor/composer`, so a symlinked vendor makes the trial autoload the master
-app's classes and silently score its neighbour's work. Read-only also enforces
-the ticket's "no changes to vendor" invariant mechanically — an attempted write
-fails rather than corrupting every other trial.
+own SQLite database, its own port, and its own **unwritable** `vendor/`:
 
-`scripts/verify_spec.sh` checksums the harness before scoring: a trial that
-edits the gate is a finding, not a pass.
+- **Linux:** a read-only bind mount of the master's `vendor/`. Cannot be
+  written at all, even by root.
+- **macOS:** an APFS clone (`cp -cR`) — copy-on-write, so near-free on disk —
+  sealed with `chmod -R a-w`. A clone is writable underneath, so it is also
+  *verified*: see `verify_vendor.sh` below.
+
+Never symlinked: Composer resolves its base directory from the realpath of
+`vendor/composer`, so a symlinked vendor makes the trial autoload the master
+app's classes and silently score its neighbour's work. Unwritable also enforces
+the ticket's "no changes to vendor" invariant — an attempted write fails rather
+than corrupting every other trial.
+
+Before scoring, two checks, each of which treats a change as a finding, not a
+pass:
+
+- `scripts/verify_spec.sh` checksums the harness — a trial that edits the gate.
+- `scripts/verify_vendor.sh <trial>` refuses any trial whose dependencies
+  changed after `new_trial.sh` stamped its baseline — **both** `vendor/` and the
+  manifest that describes it:
+  - `vendor/` by **ctime**, not mtime: ctime moves on every write, chmod, add,
+    delete and rename, and an unprivileged process cannot set it backwards — so
+    undoing the seal, or editing a file and backdating it with `touch -r`, is
+    still caught. Reading files is not.
+  - `composer.json` and `composer.lock` against the trial worktree's `HEAD`.
+    This is not redundant: a `composer require` against a sealed vendor fails at
+    `mkdir`, but Composer has already rewritten both files and does **not**
+    revert them (measured, Composer 2.8.12). `vendor/` is untouched, so a
+    vendor-only check passed a trial with a dirty manifest.
+
+Both exit 0 intact, 1 changed, 3 BROKEN — a missing checksum file, baseline, or
+untracked manifest is a setup fault and says so, rather than reading as either
+tampering or a pass.
+
+### Experiments that may add packages
+
+Set `VENDOR_WRITABLE=1` when creating trials (it passes through `render_arm.sh`)
+for an experiment where adding dependencies is legitimate. Each trial then gets
+its own writable `vendor/` — an APFS clone on macOS, a copy (copy-on-write where
+the filesystem supports reflinks) on Linux — so `composer require` lands in
+that trial alone, never in the master or a neighbour. A shared bind mount could
+not do this: writes would leak into every trial.
+
+The mode is recorded in the trial's baseline **at creation** and
+`verify_vendor.sh` reads it from there, so a trial is always judged by the rules
+it was created under: writable trials are reported (what changed) rather than
+failed, and setting `VENDOR_WRITABLE` at scoring time cannot excuse a sealed
+one. Any value other than 0 or 1 is refused.
 
 ## Not in this repository
 
@@ -103,3 +143,41 @@ The Statamic application itself (4.4GB with `vendor/`) is local-only, as is the
 pristine database snapshot. `spec/pristine.sqlite` is a copy of the app's
 database taken after migrations and fixture setup, before any revision table
 exists.
+
+## Rebuilding the lab
+
+The original lab lived in a cloud sandbox at `/home/user/lab` and was lost with
+it. Every script now reads `LAB_ROOT` instead, and refuses to run without it.
+The layout it expects:
+
+| Path | What | Where it comes from |
+|---|---|---|
+| `$LAB_ROOT/app` | the Statamic app, a git repo on `main` | built locally; not in this repo |
+| `$LAB_ROOT/spec` | a **copy** of `spec/` from this repo, plus `pristine.sqlite` | copy, then snapshot the DB as above |
+| `$LAB_ROOT/reference/spec.sha256` | checksums of `$LAB_ROOT/spec`, for `verify_spec.sh` | `cd $LAB_ROOT/spec && sha256sum * arms/* > ../reference/spec.sha256` |
+| `$LAB_ROOT/harness` | `node_modules` with `@playwright/test` | `npm i --prefix $LAB_ROOT/harness @playwright/test` |
+| `$LAB_ROOT/trials/` | one worktree per trial, created by `new_trial.sh` | generated |
+| `$LAB_ROOT/trials/<name>.vendor-baseline` | the time `verify_vendor.sh` compares against, and the trial's mode (`sealed`/`writable`) | stamped by `new_trial.sh` |
+
+Set `PW_CHROMIUM_PATH` only to use a preinstalled Chromium; otherwise run
+`npx playwright install chromium` once.
+
+**Before trusting a rebuilt lab, run `tests/run.sh` from the repo root as a
+non-root user.** On a Mac that is the first real test of the clone-based
+isolation; see [`tests/README.md`](../../tests/README.md).
+
+Two things carried over from run 07 that a rebuild must not quietly drop:
+
+- **Trial isolation runs on Linux (bind mount) and macOS (APFS clone), and
+  refuses anything else** rather than fall back to a symlink. Both branches were
+  tested on 2026-10-09 under bash 3.2 — the macOS branch as a non-root user,
+  with `cp -c` stood in for by Linux's copy-on-write `cp --reflink`. **Apple's
+  real `clonefile` has not yet run.** On the first macOS rebuild, confirm the
+  clone is genuinely copy-on-write: keep `LAB_ROOT` on the same APFS volume as
+  the app, and check that creating a trial does not consume vendor-sized disk
+  (`df` before and after).
+- **The gate is not out of a trial's reach.** `$LAB_ROOT/spec` sits two
+  directories above every trial, and in run 07 trials found `gate.sh` and ran
+  it — which is why arm A was not blind. `gate.sh` logs every invocation to
+  `/tmp/gate-audit.log`; keep that, and move the spec somewhere trials cannot
+  read before calling any arm blind.

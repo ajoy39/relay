@@ -40,11 +40,16 @@ fi
 
 # 4. The tests the ticket names must EXIST and be COLLECTED.
 #    Run 04 lost nine trials to a probe whose tests were never on the branch.
-mapfile -t named < <(grep -oE '[A-Za-z0-9_/]+test_[A-Za-z0-9_]+\.py' "$T" | sort -u)
-if [ "${#named[@]}" -eq 0 ]; then
+#    Portable to bash 3.2 (macOS /bin/bash): no mapfile, and no array, because
+#    expanding an empty array under `set -u` is an error before bash 4.4. Under
+#    3.2 the old mapfile line failed and this whole check was SILENTLY SKIPPED.
+named=$(grep -oE '[A-Za-z0-9_/]+test_[A-Za-z0-9_]+\.py' "$T" | sort -u)
+if [ -z "$named" ]; then
   ok "no test files named in ticket (nothing to verify)"
 else
-  for t in "${named[@]}"; do
+  # Read from fd 3, not stdin: pytest and find run inside this loop, and any
+  # command that reads stdin would silently eat the rest of the list.
+  while IFS= read -r t <&3; do
     path=$(find parser -name "$(basename "$t")" -print -quit 2>/dev/null)
     if [ -z "$path" ]; then
       bad "ticket names $t but no such file exists in the tree"
@@ -53,16 +58,24 @@ else
     else
       bad "$path exists but pytest cannot collect it"
     fi
-  done
+  done 3<<EOF
+$named
+EOF
 fi
 
 # 5. Gates must currently be RED. A ticket whose gates are already green is
 #    either finished or its acceptance tests are not wired into the suite.
-if scripts/gates.sh >/dev/null 2>&1; then
-  bad "gates are already GREEN — this ticket has no red surface to earn"
-else
-  ok "gates are RED (there is work to do)"
-fi
+#    Branch on the exit code, not on success/failure: gates.sh exits 3 (BROKEN)
+#    when its tooling cannot run, and a gate that never ran is not a red gate.
+#    The old `if gates.sh` read BROKEN as RED and passed the ticket.
+scripts/gates.sh >/dev/null 2>&1
+rc=$?
+case "$rc" in
+  0) bad "gates are already GREEN — this ticket has no red surface to earn" ;;
+  1) ok  "gates are RED (there is work to do)" ;;
+  3) bad "gates are BROKEN — the tooling cannot run, so RED cannot be established (run scripts/gates.sh to see why)" ;;
+  *) bad "gates exited $rc — neither GREEN, RED nor BROKEN; investigate before dispatching" ;;
+esac
 
 echo
 if [ "$fails" -eq 0 ]; then
