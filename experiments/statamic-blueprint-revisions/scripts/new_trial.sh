@@ -8,8 +8,17 @@ NAME="${1:?usage: new_trial.sh <name>}"
 : "${LAB_ROOT:?set LAB_ROOT — see the experiment README, Rebuilding the lab}"
 APP="$LAB_ROOT/app"
 DIR="$LAB_ROOT/trials/$NAME"
-SEAL="$LAB_ROOT/trials/$NAME.vendor-sealed"
+BASELINE="$LAB_ROOT/trials/$NAME.vendor-baseline"
 OS="$(uname -s)"
+# VENDOR_WRITABLE=1 is for experiments where adding packages is LEGITIMATE: the
+# trial gets its own writable vendor/ and verify_vendor.sh reports changes
+# instead of failing on them. Default 0 (sealed). Anything else is refused —
+# a typo must not silently flip the isolation model.
+case "${VENDOR_WRITABLE:-0}" in
+  0) MODE=sealed ;;
+  1) MODE=writable ;;
+  *) echo "new_trial.sh: VENDOR_WRITABLE must be 0 or 1, not '${VENDOR_WRITABLE}'" >&2; exit 2 ;;
+esac
 case "$OS" in Linux|Darwin) ;; *)
   echo "new_trial.sh: no vendor isolation implemented for $OS (Linux: bind mount; macOS: APFS clone)." >&2
   exit 2 ;;
@@ -23,17 +32,23 @@ git -C "$APP" worktree add --detach --quiet "$DIR" main
 # resolves its base directory from the realpath of vendor/composer, so a
 # symlinked vendor autoloads the master app's classes instead of the trial's —
 # and (b) unwritable, which enforces the ticket's "no changes to vendor/**".
-if [ "$OS" = "Linux" ]; then
+if [ "$OS" = "Linux" ] && [ "$MODE" = "sealed" ]; then
   # Read-only bind mount: shares the master's files and cannot be written at all.
   mkdir -p "$DIR/vendor"
   mount --bind -o ro "$APP/vendor" "$DIR/vendor"
-else
+elif [ "$OS" = "Darwin" ]; then
   # APFS clone: copy-on-write, so near-free on disk, and the trial's own realpath.
-  # Unlike a read-only mount it is writable, so it is sealed (chmod a-w, which
-  # makes an accidental write fail loudly) and verify_vendor.sh refuses any
-  # trial whose vendor/ changed after the seal. Unseal before deleting: rm_trial.sh.
+  # Writes land in this trial's copy only, never the master's or a neighbour's.
+  # Sealed mode adds chmod a-w, so an accidental write fails loudly, and
+  # verify_vendor.sh refuses any change after the baseline. Unseal before
+  # deleting: rm_trial.sh.
   cp -cR "$APP/vendor" "$DIR/vendor"
-  chmod -R a-w "$DIR/vendor"
+  if [ "$MODE" = "sealed" ]; then chmod -R a-w "$DIR/vendor"; fi
+else
+  # Linux, writable: a bind mount would share writes with every trial, so the
+  # trial gets its own copy — copy-on-write where the filesystem supports
+  # reflinks, a full copy where it does not.
+  cp -R --reflink=auto "$APP/vendor" "$DIR/vendor"
 fi
 mkdir -p "$DIR/public/vendor"
 ln -s "$APP/public/vendor/statamic" "$DIR/public/vendor/statamic"
@@ -47,9 +62,11 @@ mkdir -p "$DIR/storage/framework/cache/data" \
 
 cp "$LAB_ROOT/spec/pristine.sqlite" "$DIR/database/database.sqlite"
 
-# Stamp the seal LAST, a second after the chmod, so nothing set up here can
-# look newer than it. verify_vendor.sh compares vendor/ ctimes against it.
+# Stamp the baseline LAST, a second after the chmod, so nothing set up here can
+# look newer than it. Its mtime is the time verify_vendor.sh compares ctimes
+# against; its content is the mode, so a trial is always judged by the rules it
+# was created under, never by whatever VENDOR_WRITABLE says at scoring time.
 sleep 1
-touch "$SEAL"
+printf 'mode=%s\n' "$MODE" > "$BASELINE"
 
 echo "$DIR"

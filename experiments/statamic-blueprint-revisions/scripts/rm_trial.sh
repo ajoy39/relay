@@ -12,5 +12,5 @@ if command -v mountpoint >/dev/null 2>&1 && mountpoint -q "$DIR/vendor"; then
 elif [ -d "$DIR/vendor" ]; then
   chmod -R u+w "$DIR/vendor"
 fi
-rm -rf "$DIR" "$LAB_ROOT/trials/$NAME.vendor-sealed"
+rm -rf "$DIR" "$LAB_ROOT/trials/$NAME.vendor-baseline"
 git -C "$LAB_ROOT/app" worktree prune

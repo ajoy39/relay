@@ -105,14 +105,37 @@ Before scoring, two checks, each of which treats a change as a finding, not a
 pass:
 
 - `scripts/verify_spec.sh` checksums the harness — a trial that edits the gate.
-- `scripts/verify_vendor.sh <trial>` refuses any trial whose `vendor/` changed
-  after `new_trial.sh` sealed it. It compares **ctime**, not mtime: ctime moves
-  on every write, chmod, add, delete and rename, and an unprivileged process
-  cannot set it backwards — so undoing the seal, or editing a file and
-  backdating it with `touch -r`, is still caught. Reading files is not.
+- `scripts/verify_vendor.sh <trial>` refuses any trial whose dependencies
+  changed after `new_trial.sh` stamped its baseline — **both** `vendor/` and the
+  manifest that describes it:
+  - `vendor/` by **ctime**, not mtime: ctime moves on every write, chmod, add,
+    delete and rename, and an unprivileged process cannot set it backwards — so
+    undoing the seal, or editing a file and backdating it with `touch -r`, is
+    still caught. Reading files is not.
+  - `composer.json` and `composer.lock` against the trial worktree's `HEAD`.
+    This is not redundant: a `composer require` against a sealed vendor fails at
+    `mkdir`, but Composer has already rewritten both files and does **not**
+    revert them (measured, Composer 2.8.12). `vendor/` is untouched, so a
+    vendor-only check passed a trial with a dirty manifest.
 
-Both exit 0 intact, 1 changed, 3 BROKEN (a missing checksum file or seal is a
-setup fault and says so, rather than reading as tampering).
+Both exit 0 intact, 1 changed, 3 BROKEN — a missing checksum file, baseline, or
+untracked manifest is a setup fault and says so, rather than reading as either
+tampering or a pass.
+
+### Experiments that may add packages
+
+Set `VENDOR_WRITABLE=1` when creating trials (it passes through `render_arm.sh`)
+for an experiment where adding dependencies is legitimate. Each trial then gets
+its own writable `vendor/` — an APFS clone on macOS, a copy (copy-on-write where
+the filesystem supports reflinks) on Linux — so `composer require` lands in
+that trial alone, never in the master or a neighbour. A shared bind mount could
+not do this: writes would leak into every trial.
+
+The mode is recorded in the trial's baseline **at creation** and
+`verify_vendor.sh` reads it from there, so a trial is always judged by the rules
+it was created under: writable trials are reported (what changed) rather than
+failed, and setting `VENDOR_WRITABLE` at scoring time cannot excuse a sealed
+one. Any value other than 0 or 1 is refused.
 
 ## Not in this repository
 
@@ -134,7 +157,7 @@ The layout it expects:
 | `$LAB_ROOT/reference/spec.sha256` | checksums of `$LAB_ROOT/spec`, for `verify_spec.sh` | `cd $LAB_ROOT/spec && sha256sum * arms/* > ../reference/spec.sha256` |
 | `$LAB_ROOT/harness` | `node_modules` with `@playwright/test` | `npm i --prefix $LAB_ROOT/harness @playwright/test` |
 | `$LAB_ROOT/trials/` | one worktree per trial, created by `new_trial.sh` | generated |
-| `$LAB_ROOT/trials/<name>.vendor-sealed` | the seal `verify_vendor.sh` compares against | stamped by `new_trial.sh` |
+| `$LAB_ROOT/trials/<name>.vendor-baseline` | the time `verify_vendor.sh` compares against, and the trial's mode (`sealed`/`writable`) | stamped by `new_trial.sh` |
 
 Set `PW_CHROMIUM_PATH` only to use a preinstalled Chromium; otherwise run
 `npx playwright install chromium` once.
