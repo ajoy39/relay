@@ -162,6 +162,10 @@ The layout it expects:
 Set `PW_CHROMIUM_PATH` only to use a preinstalled Chromium; otherwise run
 `npx playwright install chromium` once.
 
+**Before trusting a rebuilt lab, run `tests/run.sh` from the repo root as a
+non-root user.** On a Mac that is the first real test of the clone-based
+isolation; see [`tests/README.md`](../../tests/README.md).
+
 Two things carried over from run 07 that a rebuild must not quietly drop:
 
 - **Trial isolation runs on Linux (bind mount) and macOS (APFS clone), and

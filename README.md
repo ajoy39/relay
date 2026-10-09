@@ -62,6 +62,7 @@ scripts/                dispatch, gates, review — the loop, in ~200 lines of s
 parser/                 the receipt parser: acceptance tests, and src/ written by
                         the implementer across the merged tickets
 experiments/            controlled experiments on agent behaviour (run 07 lives here)
+tests/                  tests for the harness itself — run tests/run.sh
 ```
 
 ## Status
