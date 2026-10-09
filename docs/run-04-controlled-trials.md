@@ -109,11 +109,13 @@ and a too-small window — both produced the same tidy, wrong answer of "zero
 reported." A conclusion that survives a broken instrument is a conclusion you
 were going to reach regardless of the data.
 
-### The fix, which is mechanical and now in the repo
+### The fix that was specified, and never built
 
-`scripts/scan_report.sh` reads the entire transcript, flags language questioning
-the contract, prints the offending lines, and exits non-zero so a workflow can
-gate on it. The signal was always present; nothing was reading it. Run it on
+A mechanical transcript scanner was specified here — read the entire transcript,
+flag language questioning the contract, exit non-zero so a workflow could gate
+on it. *(Correction, 2026-10-09: this section originally said the scanner was
+"now in the repo". It never was. The requirement has since been dropped.)* The
+finding stands: the signal was always present and nothing was reading it. Read
 every dispatch transcript before treating red gates as an implementer failure.
 
 ## Deliverable

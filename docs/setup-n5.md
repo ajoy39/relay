@@ -118,6 +118,11 @@ cloudflared tunnel create relay-llm
    and code now transit Cloudflare. Fine deliberately, never accidentally. Tear the route down
    when the remote use case ends.
 
+   > **What actually happened (recorded 2026-10-09):** the live endpoint *did* run through this
+   > tier — prompts and code from the runs it served transited Cloudflare. The endpoint, the
+   > tunnel and its config have since been decommissioned. Anything rebuilt from this document
+   > starts back at tier 1.
+
 ## 5. The M2 Max, for the heavy tail
 
 The MacBook (M2 Max, 400GB/s) serves ad hoc when a ticket needs a bigger or denser model than the

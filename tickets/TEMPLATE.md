@@ -7,7 +7,7 @@
 
 > Before dispatching, run `scripts/check_ticket.sh tickets/NNNN-*.md`. It is a
 > mechanical pre-flight — it does not read your intent, only whether the ticket
-> is dispatchable. Post-dispatch, run `scripts/scan_report.sh <transcript>`.
+> is dispatchable. Post-dispatch, read the whole transcript, not only the gates.
 
 ---
 
@@ -70,8 +70,8 @@ implement what is implementable; the report is what matters.
 <This asks for what implementers actually do. Detection of a broken contract is
 6/6 in controlled trials; stopping on it is 0/6. An instruction to STOP that is
 never obeyed teaches the architect to trust an escalation path that does not
-exist — the alert-fatigue failure mode. `scripts/scan_report.sh` reads the
-transcript for exactly this and exits non-zero. Run 04.>
+exist — the alert-fatigue failure mode. No script catches this: read the
+transcript for exactly this. Run 04.>
 
 ## Reports
 

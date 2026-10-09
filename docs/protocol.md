@@ -75,9 +75,9 @@ runs on. That constraint generalizes: sessions end, context windows fill, models
 with executable acceptance criteria is the only handoff artifact that survives all three — which
 is why the spec is the product here, and the code is its consequence.
 
-## The two checks with no model in them
+## The check with no model in it
 
-Both are mechanical, both refuse loudly, and both exist because their absence
+It is mechanical, it refuses loudly, and it exists because its absence
 cost real rounds:
 
 - **`scripts/check_ticket.sh <ticket>`** — pre-flight. Refuses to pass a ticket
@@ -85,12 +85,13 @@ cost real rounds:
   unfilled template placeholders, naming test files that do not exist or cannot
   be collected, or whose gates are already green. That third check is the direct
   descendant of run 04's nine wasted trials against an unarmed probe.
-- **`scripts/scan_report.sh <transcript>`** — post-flight. Scans the whole
-  transcript for the implementer questioning the contract and exits non-zero.
+Run it before every dispatch. It is cheap, it does not interpret intent, and
+unlike a remembered rule it fails in a way you cannot skim past.
 
-Run the first before every dispatch and the second after every round. They are
-cheap, they do not interpret intent, and unlike a remembered rule they fail in a
-way you cannot skim past.
+A post-flight transcript scanner was specified here after run 04 and never
+built; the requirement was dropped on 2026-10-09. What it targeted — a contract
+objection buried as an aside inside a success report — is now caught only by
+**reading the whole transcript** after every round.
 
 ## Amendment (runs 04–05): stop-and-report works above a capability floor
 
@@ -121,9 +122,9 @@ resisted four escalating styles of feedback.
 - **Know which side of the floor your implementer is on**, and configure
   accordingly. Above it, the escalation path is real and you can act on reports.
   Below it, it does not exist and nothing should be built on it.
-- **Below the floor, read the transcript, not only the gates.** Run
-  `scripts/scan_report.sh <transcript>` after every dispatch — the 30B's reports
-  are accurate, they just arrive as an aside inside a false success claim.
+- **Below the floor, read the transcript, not only the gates** — after every
+  dispatch. The 30B's reports are accurate, they just arrive as an aside inside
+  a false success claim.
 - **Red gates are not proof of implementer failure.** Check the ticket and its
   tests first. Run 02 lost a 100-minute round to an architect fixture error the
   implementer had already diagnosed.
