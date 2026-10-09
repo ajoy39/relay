@@ -59,16 +59,29 @@ docs/setup-n5.md        serving a model from the N5 Pro (TrueNAS + llama.cpp), t
 docs/setup-harness.md   opencode against the local endpoint; alternatives
 tickets/                specs; TEMPLATE.md is the contract format
 scripts/                dispatch, gates, review — the loop, in ~200 lines of shell total
-parser/                 ticket 0001's workspace: acceptance tests (red until the
-                        implementer earns green) and an empty src/
+parser/                 the receipt parser: acceptance tests, and src/ written by
+                        the implementer across the merged tickets
+experiments/            controlled experiments on agent behaviour (run 07 lives here)
 ```
 
 ## Status
 
-Ticket [`0001`](tickets/0001-receipt-parser.md) is **open** and its gates are **red by design** —
-red gates are what "ready for the implementer" looks like. The parser in `parser/src/` will be
-written by the local model, not by the architect who wrote this README. That asymmetry is the
-demonstration.
+The parser in `parser/src/` exists, and it was written by the local model — not by the architect
+who wrote this README. That asymmetry is the demonstration.
+
+| Ticket | Status |
+|---|---|
+| [`0001`](tickets/0001-receipt-parser.md) | merged (`c5845a9`) |
+| [`0002`](tickets/0002-giant-dialect.md) | escalated, then superseded by the 0003–0005 split |
+| [`0003`](tickets/0003-giant-line-recognition.md) | merged |
+| [`0004`](tickets/0004-giant-departments.md) | merged |
+| [`0005`](tickets/0005-giant-quantities-and-noise.md) | merged |
+| [`0006`](tickets/0006-dialect-seam.md) | superseded by 0008 |
+| [`0007`](tickets/0007-subtotal-lines.md) | **open** |
+| [`0008`](tickets/0008-dialect-seam-layered.md) | merged (`65ace1a`) |
+
+Each ticket file is the source of truth for its own status; this table is a convenience and goes
+stale. Run write-ups are in `docs/run-0*.md`; run 07 is under `experiments/`.
 
 ## Boundaries
 

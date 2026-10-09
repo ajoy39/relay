@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # gate.sh <app-dir> <port> — black-box acceptance gate. Exit 0 = GREEN.
 set -uo pipefail
-APP="${1:-/home/user/lab/app}"; PORT="${2:-8000}"
-S=/home/user/lab/spec
+APP="${1:-${LAB_ROOT:-}/app}"; PORT="${2:-8000}"
+S="${LAB_ROOT:-}/spec"
 
 # Audit EVERY invocation, including a trial running the gate on itself. Arm A's
-# premise is "no checker available" — but gate.sh is world-readable one directory
-# up from a trial's worktree, and in run 07 trials found it and ran it. This file
+# premise is "no checker available" — but gate.sh is world-readable two levels
+# up from a trial's worktree (../../spec/gate.sh), and in run 07 trials found it and ran it. This file
 # is the only thing that distinguishes a blind arm from a confounded one. Without
 # it the confound is invisible and the arm's result reads as a capability finding.
 echo "$(date +%s) $APP $$" >> /tmp/gate-audit.log
+
+# The lab lives under LAB_ROOT (README: "Rebuilding the lab"). Unset is BROKEN,
+# exit 3 — not RED, exit 1. A missing setting must never be able to score a trial.
+[ -n "${LAB_ROOT:-}" ] || { echo "GATE: BROKEN — LAB_ROOT is not set"; exit 3; }
 
 cd "$APP" || { echo "GATE: BROKEN — no app dir"; exit 3; }
 
@@ -36,7 +40,7 @@ rm -f "/tmp/gate-storage-state-$PORT.json"
 RESULT="/tmp/gate-result-$PORT.json"; rm -f "$RESULT"
 BASE_URL="http://127.0.0.1:$PORT" GATE_STATE="/tmp/gate-storage-state-$PORT.json" \
   GATE_RESULT="$RESULT" GATE_OUTPUT="/tmp/gate-artifacts-$PORT" \
-  npx --prefix /home/user/lab/harness playwright test \
+  npx --prefix "$LAB_ROOT/harness" playwright test \
   --config "$S/playwright.config.js" 2>&1 | tail -30
 RC=${PIPESTATUS[0]}
 SCORE=$(python3 -c "

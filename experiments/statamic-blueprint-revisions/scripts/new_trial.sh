@@ -5,8 +5,19 @@
 # its own.
 set -euo pipefail
 NAME="${1:?usage: new_trial.sh <name>}"
-APP=/home/user/lab/app
-DIR=/home/user/lab/trials/$NAME
+: "${LAB_ROOT:?set LAB_ROOT — see the experiment README, Rebuilding the lab}"
+APP="$LAB_ROOT/app"
+DIR="$LAB_ROOT/trials/$NAME"
+
+# Trial isolation rests on a READ-ONLY bind mount of vendor/ (below). macOS has
+# no bind mounts, and a symlink is not a substitute: composer resolves its base
+# directory from the realpath, so a symlinked vendor autoloads the master app's
+# classes. Refuse before creating anything rather than degrade isolation quietly.
+if [ "$(uname -s)" != "Linux" ]; then
+  echo "new_trial.sh: trial isolation needs a read-only bind mount of vendor/, which $(uname -s) does not have." >&2
+  echo "Not falling back to a symlink (wrong autoloading). See the experiment README, Rebuilding the lab." >&2
+  exit 2
+fi
 
 [ -e "$DIR" ] && { echo "trial $NAME already exists" >&2; exit 1; }
 
@@ -28,6 +39,6 @@ mkdir -p "$DIR/storage/framework/cache/data" \
          "$DIR/storage/logs" \
          "$DIR/bootstrap/cache"
 
-cp /home/user/lab/spec/pristine.sqlite "$DIR/database/database.sqlite"
+cp "$LAB_ROOT/spec/pristine.sqlite" "$DIR/database/database.sqlite"
 
 echo "$DIR"

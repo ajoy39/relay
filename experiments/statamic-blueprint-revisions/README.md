@@ -103,3 +103,37 @@ The Statamic application itself (4.4GB with `vendor/`) is local-only, as is the
 pristine database snapshot. `spec/pristine.sqlite` is a copy of the app's
 database taken after migrations and fixture setup, before any revision table
 exists.
+
+## Rebuilding the lab
+
+The original lab lived in a cloud sandbox at `/home/user/lab` and was lost with
+it. Every script now reads `LAB_ROOT` instead, and refuses to run without it.
+The layout it expects:
+
+| Path | What | Where it comes from |
+|---|---|---|
+| `$LAB_ROOT/app` | the Statamic app, a git repo on `main` | built locally; not in this repo |
+| `$LAB_ROOT/spec` | a **copy** of `spec/` from this repo, plus `pristine.sqlite` | copy, then snapshot the DB as above |
+| `$LAB_ROOT/reference/spec.sha256` | checksums of `$LAB_ROOT/spec`, for `verify_spec.sh` | `cd $LAB_ROOT/spec && sha256sum * arms/* > ../reference/spec.sha256` |
+| `$LAB_ROOT/harness` | `node_modules` with `@playwright/test` | `npm i --prefix $LAB_ROOT/harness @playwright/test` |
+| `$LAB_ROOT/trials/` | one worktree per trial, created by `new_trial.sh` | generated |
+
+Set `PW_CHROMIUM_PATH` only to use a preinstalled Chromium; otherwise run
+`npx playwright install chromium` once.
+
+Two things carried over from run 07 that a rebuild must not quietly drop:
+
+- **Trial isolation is Linux-only as written.** `new_trial.sh` bind-mounts
+  `vendor/` read-only, and refuses to run on anything but Linux. **Do not
+  replace the mount with a symlink** — composer resolves its base directory from
+  the realpath, so trials would autoload the master app's classes. On macOS the
+  likely answer is a per-trial APFS clone (`cp -c`, copy-on-write, near-free on
+  disk), but a clone is writable, so it loses the mechanical "no changes to
+  `vendor/**`" invariant and would need a post-trial vendor checksum in its
+  place. That is a change to the instrument, and it has not been built or
+  validated.
+- **The gate is not out of a trial's reach.** `$LAB_ROOT/spec` sits two
+  directories above every trial, and in run 07 trials found `gate.sh` and ran
+  it — which is why arm A was not blind. `gate.sh` logs every invocation to
+  `/tmp/gate-audit.log`; keep that, and move the spec somewhere trials cannot
+  read before calling any arm blind.

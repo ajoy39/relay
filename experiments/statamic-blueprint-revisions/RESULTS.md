@@ -32,7 +32,7 @@ everything else: **24 blind trials, zero completed features**, against roughly
 a 1-in-5 green rate once a model can run the gate.
 
 > **Arm A was not blind, and this is the run's most important caveat.**
-> `gate.sh` sits world-readable one directory above each trial's worktree, and
+> `gate.sh` sits world-readable two levels above each trial's worktree (`../../spec/gate.sh`), and
 > `/tmp/gate-audit.log` (added later, see instrument bug 12) showed trials
 > finding it and running it. So arm A's treatment was "no acceptance command
 > *given*", not "no checker *available*" — which is a much weaker manipulation
@@ -226,7 +226,7 @@ Fifteen, all of which would have produced confident wrong findings:
     confirm-on-margin rule was added.
 
 12. **The gate was reachable from inside a trial.** Arm A's whole premise was
-    that no checker was available; `gate.sh` was world-readable one directory up
+    that no checker was available; `gate.sh` was world-readable two levels up
     and trials ran it. Found only after adding `/tmp/gate-audit.log`, which now
     records every invocation. See the caveat under *The ladder*.
 13. **A trial vanished silently.** s015 was dispatched, produced no
