@@ -60,10 +60,22 @@ until mkdir "$LOCK" 2>/dev/null; do
   sleep 2; waited=$((waited + 2))
   [ "$waited" -lt 3600 ] || refuse "timed out waiting for the gate lock"
 done
-trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+# Amendment A3: gate a copy, never the trial itself. The trial user creates
+# runtime directories with fixed modes (Statamic's storage/statamic/stache-
+# locks is 0755), which this user can't write, so gating the trial in place
+# failed every run once the trial had run artisan (cal01; reproduced by
+# repro1). A copy owned by this user is always writable, and the gate leaves
+# nothing behind in the trial. APFS clone on macOS (near-free), reflink where
+# Linux supports it.
+WORK="$GATE/work/$TRIAL.$$"
+cleanup() { [ -d "$WORK" ] && { chmod -R u+w "$WORK" 2>/dev/null; rm -rf "$WORK"; }; rmdir "$LOCK" 2>/dev/null; }
+trap cleanup EXIT
+mkdir -p "$GATE/work" || refuse "cannot create the gate's work area"
+if [ "$(uname -s)" = Darwin ]; then cp -cR "$APP" "$WORK"; else cp -R --reflink=auto "$APP" "$WORK"; fi \
+  || refuse "could not copy trial $TRIAL for gating"
 
-audit "RUN trial=$TRIAL arm=$ARM port=$PORT"
-bash "$GATE/spec/gate.sh" "$APP" "$PORT"
+audit "RUN trial=$TRIAL arm=$ARM port=$PORT copy=$WORK"
+bash "$GATE/spec/gate.sh" "$WORK" "$PORT"
 RC=$?
 audit "DONE trial=$TRIAL rc=$RC"
 exit "$RC"

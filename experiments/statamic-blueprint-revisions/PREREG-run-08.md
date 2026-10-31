@@ -211,3 +211,24 @@ because the copy can't reach the pristine database or Playwright. In run 07,
 that worked: it was how arm A's trials found a checker. Arm D has the real
 command, so this should rarely matter. Direct runs are visible in each trial's
 transcript, and are counted.
+
+### A3 — 2026-10-31: the gate runs on a copy of the trial (after cal01)
+
+**Why.** The first calibration trial, `cal01`, couldn't be measured: all six
+gate runs (four by the trial, two scoring) stopped at "fixture seed failed".
+Rebuilt from its saved patch, it seeded fine. The cause, reproduced by a
+diagnostic trial (`repro1`, no code written, just `artisan` run as `labtrial`):
+the trial user creates runtime directories with fixed modes (Statamic's
+`storage/statamic/stache-locks` is `0755`). `labgate` can't write to them, so
+Statamic's Stache service provider throws at boot. That's an instrument
+failure created by A1's two-user design, not the trial's fault. The gate
+correctly reported it as NORESULT, never as a score.
+
+**Change.** `run-gate` makes an APFS clone of the trial in the gate's own work
+area, owned by `labgate`, runs the gate on that copy, and deletes it. The
+trial's code still runs only as `labgate` (A1 is unchanged), and the gate no
+longer leaves files in the trial.
+
+**Effect on data.** None recorded yet: `cal01` is NORESULT and is re-run as
+`cal01-rerun` under the fixed instrument, as *Measurement* requires. No trial
+has been scored under the broken version. Approved by Alec on 2026-10-31.
