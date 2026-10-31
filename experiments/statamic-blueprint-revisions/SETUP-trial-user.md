@@ -162,10 +162,21 @@ This moves them into a `gate/` folder the gate user can use:
 ```sh
 cd /Users/Shared/lab
 mkdir gate && mv private/spec gate/spec && mv private/harness gate/harness
-mkdir -p gate/log gate/browsers
+mkdir -p gate/log gate/browsers gate/work
 rm spec harness && ln -s gate/spec spec && ln -s gate/harness harness
-sudo chgrp -R labgate gate && sudo chmod -R g+rwX gate && sudo chmod 2770 gate gate/log
+sudo chgrp -R labgate gate && sudo chmod -R g+rX,g-w gate && sudo chmod 2770 gate/log gate/work
+touch gate/log/gate-audit.log && chgrp labgate gate/log/gate-audit.log && chmod 664 gate/log/gate-audit.log
+chflags uappnd gate/log/gate-audit.log
 ```
+
+**`labgate` may write only `gate/log/` and `gate/work/`** (Amendment A4). The
+gate runs each trial's own code as `labgate` (seeding, the dev server), so
+anything else `labgate` can write, a trial can rewrite: the spec, Playwright,
+the browser, the schedule, or `gate/` itself. The audit log is append-only
+(`uappnd`, set by its owner, which `labgate` is not): the gate can add lines,
+and nothing can edit or delete it without the owner clearing the flag first
+(`chflags nouappnd`). To edit the schedule or the spec, work as the owner;
+both stay readable by `labgate`.
 
 ## G3. Git in trial folders
 
