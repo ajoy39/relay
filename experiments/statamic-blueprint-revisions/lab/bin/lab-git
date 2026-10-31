@@ -12,6 +12,7 @@
 # labgate, the user already trusted to execute trial code (the gate does).
 set -u
 umask 002
+cd / || exit 3   # sudo keeps the caller's cwd, which this user may not be able to read
 ROOT=/Users/Shared/lab
 [ -z "${SUDO_USER:-}" ] && ROOT="${LAB_GIT_TEST_ROOT:-$ROOT}"
 HOME="$(eval echo "~$(id -un)")"

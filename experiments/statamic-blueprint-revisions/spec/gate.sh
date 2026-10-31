@@ -50,6 +50,11 @@ for i in $(seq 1 20); do sleep 1; curl -sS -o /dev/null -m 5 "http://127.0.0.1:$
 # Without a server every assertion fails, which used to read as a clean 0/6.
 [ "$UP" = 1 ] || { stop_server; echo "SCORE: NORESULT"; echo "GATE: NORESULT — server did not answer on port $PORT"; exit 3; }
 
+# gate.spec.js requires @playwright/test, and Node resolves that by walking up
+# from the spec's own directory. harness/ sits beside spec/, not above it, so
+# without this the spec finds nothing and every run is NORESULT ("No tests
+# found"; run 08 phase 0, 2026-10-31).
+export NODE_PATH="$LAB_ROOT/harness/node_modules${NODE_PATH:+:$NODE_PATH}"
 rm -f "/tmp/gate-storage-state-$PORT.json"
 RESULT="/tmp/gate-result-$PORT.json"; rm -f "$RESULT"
 BASE_URL="http://127.0.0.1:$PORT" GATE_STATE="/tmp/gate-storage-state-$PORT.json" \

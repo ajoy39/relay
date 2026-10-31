@@ -12,6 +12,7 @@
 # refused. A refusal never runs the gate, so it can never produce a verdict.
 set -u
 umask 002
+cd / || exit 3   # sudo keeps the caller's cwd, which this user may not be able to read
 
 ROOT=/Users/Shared/lab
 OWNER=ajoy
