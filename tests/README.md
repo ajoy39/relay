@@ -12,6 +12,7 @@ BASH_UT=/path/to/bash tests/run.sh  # run the scripts under a specific bash
 | Suite | Covers | Needs |
 |---|---|---|
 | `test_scripts.sh` | gates that report only what they measured (BROKEN ≠ RED); bash 3.2 portability; `LAB_ROOT`; per-ticket dispatch worktrees | git, python3 + pytest, ruff, node, perl |
+| `test_gate.sh` | the run-07 gate's verdicts with php, the server and Playwright stubbed: measured scores are GREEN/RED, and anything unmeasured (no result file, wrong spec count, a spec that never ran, no server) is NORESULT, never 0/6 | python3 |
 | `test_isolation.sh` | each trial's own sealed `vendor/`; every tamper caught, including edits backdated with `touch -r` | **non-root**, git |
 | `test_vendor_manifest.sh` | real `composer require` in real trials: a failed install's dirty manifest is caught; `VENDOR_WRITABLE=1` isolates per trial | **non-root**, git, php, composer |
 | `test_linux_mount.sh` | the Linux read-only bind mount | Linux, root, bind-mount capability |
