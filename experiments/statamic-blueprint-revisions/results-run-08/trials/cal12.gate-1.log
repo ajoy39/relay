@@ -1,0 +1,35 @@
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Permission denied
+chdir: error retrieving current directory: getcwd: cannot access parent directories: Permission denied
+
+    Error Context: ../../../../../../tmp/gate-artifacts-58312/gate-5-preview-shows-the-changed-path-without-applying-it/error-context.md
+
+  6) ../../spec/gate.spec.js:134:1 › 6. restore reverts the blueprint and is itself recorded ───────
+
+    Error: history available
+
+    expect(received).toBeGreaterThan(expected)
+
+    Expected: > 0
+    Received:   0
+
+      135 |   await login(page);
+      136 |   const revisions = await fetchRevisions(page);
+    > 137 |   expect(revisions.length, 'history available').toBeGreaterThan(0);
+          |                                                 ^
+      138 |   const oldest = revisions[revisions.length - 1];
+      139 |   await page.goto(EDIT, { waitUntil: 'domcontentloaded' });
+      140 |   const res = await page.request.post(`${API}/${oldest.id}/restore`, { headers: await csrfHeaders(page) });
+        at /Users/Shared/lab/gate/spec/gate.spec.js:137:49
+
+    Error Context: ../../../../../../tmp/gate-artifacts-58312/gate-6-restore-reverts-the-blueprint-and-is-itself-recorded/error-context.md
+
+  6 failed
+    ../../spec/gate.spec.js:58:1 › 1. revisions endpoint lists history newest-first ────────────────
+    ../../spec/gate.spec.js:73:1 › 2. diff endpoint reports what restoring would change ────────────
+    ../../spec/gate.spec.js:89:1 › 3. unauthenticated access is refused ────────────────────────────
+    ../../spec/gate.spec.js:104:1 › 4. blueprint edit page exposes history, preview and restore ────
+    ../../spec/gate.spec.js:118:1 › 5. preview shows the changed path without applying it ──────────
+    ../../spec/gate.spec.js:134:1 › 6. restore reverts the blueprint and is itself recorded ────────
+SCORE: 0/6
+post-restore body display = Body v3
+GATE: RED
