@@ -70,14 +70,29 @@ edit and then run as `ajoy` is a way into the owner's account.
 ## 3. Claude for `labtrial`
 
 `claude` lives in `/Users/ajoy/.local/bin`, which `labtrial` can't read, so
-it needs its own install and its own login (same subscription):
+it needs its own install and its own login (same subscription).
+
+**Not `/login`.** `sudo -iu labtrial` is a shell, not a macOS login session,
+so `labtrial` has no unlocked Keychain and `/login` can't save its
+credential (found 2026-10-30). Trials run the same way, so they authenticate
+with a long-lived token from `claude setup-token`, passed in as
+`CLAUDE_CODE_OAUTH_TOKEN` by `run-trial`.
 
 ```sh
 sudo -iu labtrial                                    # a shell as labtrial
 curl -fsSL https://claude.ai/install.sh | bash       # installs to ~/.local/bin
-~/.local/bin/claude                                  # /login, finish in the browser, then /exit
+~/.local/bin/claude setup-token                      # finish in the browser; it prints a token
+umask 077; mkdir -p ~/.config/relay
+cat > ~/.config/relay/claude-oauth-token             # paste the token, Enter, then Ctrl-D
+chmod 600 ~/.config/relay/claude-oauth-token
+CLAUDE_CODE_OAUTH_TOKEN="$(cat ~/.config/relay/claude-oauth-token)" \
+  ~/.local/bin/claude -p "Reply with just: ok" --model claude-haiku-5-5   # prints ok
 exit
 ```
+
+The token is a credential for the owner's subscription: readable only by
+`labtrial`, never pasted into a Claude session or a repo. It lasts about a
+year; renew it with `setup-token`.
 
 ## 4. The `sudo` rules
 
@@ -105,6 +120,8 @@ sudo -u labtrial ls /Users/Shared/lab/private # Permission denied
 sudo -u labtrial ls /Users/Shared/lab/trials  # works (empty)
 sudo -u labtrial touch /Users/Shared/lab/trials/probe && ls -l /Users/Shared/lab/trials/probe && rm /Users/Shared/lab/trials/probe
 sudo -u labtrial /Users/labtrial/.local/bin/claude --version   # prints a version
+sudo -u labtrial ls -l /Users/labtrial/.config/relay/claude-oauth-token   # -rw------- labtrial
+ls /Users/labtrial/.config/relay/ 2>&1 | head -1       # as ajoy: Permission denied (labtrial home is private)
 sudo -l -U labtrial                           # only the run-gate rule
 ```
 
