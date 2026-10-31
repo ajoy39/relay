@@ -1,7 +1,7 @@
 # Blueprint revision tracker (Eloquent driver)
 
 **Your app directory**: `{{APP_DIR}}` — work only in there.
-`vendor/**` is mounted read-only. Do not touch `/home/user/lab/spec/**`.
+`vendor/**` is mounted read-only. Do not touch `{{SPEC_DIR}}/**`.
 
 ## Goal
 
@@ -56,7 +56,7 @@ can drive the page; everything else about the presentation is your choice.
 - A blueprint save through Statamic's normal path records a revision. Two edits
   produce two revisions, newest first.
 - Restoring changes the blueprint's stored contents and is itself revertible.
-- No changes to `vendor/**`. No edits under `/home/user/lab/spec/**`.
+- No changes to `vendor/**`. No edits under `{{SPEC_DIR}}/**`.
 - Existing app tests must still pass.
 
 ## Non-goals

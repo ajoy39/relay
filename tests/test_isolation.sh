@@ -22,6 +22,16 @@ vv t1; chk "fresh trial -> intact (0)" "$?" "0"
 cat $(find "$D/vendor" -type f) >/dev/null
 vv t1; chk "reading every file -> still intact (no false positive)" "$?" "0"
 
+echo "== git state is the trial's own (run 07: shared refs/stash)"
+"$B" "$S/new_trial.sh" g1 >/dev/null 2>&1; "$B" "$S/new_trial.sh" g2 >/dev/null 2>&1
+echo work > "$T/g1/file.txt"; git -C "$T/g1" add file.txt; git -C "$T/g1" stash -q
+chk "a stash in one trial..." "$(git -C "$T/g1" stash list | wc -l | tr -d ' ')" "1"
+chk "  ...is invisible to a sibling" "$(git -C "$T/g2" stash list | wc -l | tr -d ' ')" "0"
+chk "  ...and to the master app" "$(git -C "$A" stash list | wc -l | tr -d ' ')" "0"
+chk "a trial has no remote to push into" "$(git -C "$T/g1" remote | wc -l | tr -d ' ')" "0"
+chk "the master gains no worktrees" "$(git -C "$A" worktree list | wc -l | tr -d ' ')" "1"
+for n in g1 g2; do "$B" "$S/rm_trial.sh" $n >/dev/null 2>&1 || echo "  rm_trial $n failed"; done
+
 echo "== tampering is caught"
 for n in t2 t3 t4 t5 t6; do "$B" "$S/new_trial.sh" $n >/dev/null 2>&1; done
 chmod u+w "$T/t2/vendor/autoload.php"; echo evil >> "$T/t2/vendor/autoload.php"
@@ -35,6 +45,25 @@ vv t5; chk "delete a file -> MODIFIED" "$?" "1"
 chmod u+w "$T/t6/vendor/autoload.php"
 vv t6; chk "only undo the seal (chmod) -> MODIFIED" "$?" "1"
 "$B" "$S/verify_vendor.sh" nosuch >/dev/null 2>&1; chk "no baseline -> BROKEN (3)" "$?" "3"
+
+echo "== render_arm.sh: prompts point at this lab, never /home/user/lab"
+cp -R "$REPO/experiments/statamic-blueprint-revisions/spec/arms" "$LAB_ROOT/spec/"
+for a in A B C D; do
+  D="$("$B" "$S/render_arm.sh" $a r$a 59100 2>/dev/null)"; rc=$?; P="$T/r$a.prompt.md"
+  chk "arm $a renders" "$rc" "0"
+  hasnt "  ...no placeholder left" "$(cat "$P" 2>/dev/null)" "{{"
+  hasnt "  ...no run-07 path" "$(cat "$P" 2>/dev/null)" "/home/user/lab"
+  has "  ...names the trial's own app dir" "$(cat "$P" 2>/dev/null)" "$D"
+done
+has "arm B's acceptance command is this lab's gate" "$(cat "$T/rB.prompt.md")" "bash $LAB_ROOT/spec/gate.sh $T/rB 59100"
+hasnt "arm A still gives no acceptance command" "$(cat "$T/rA.prompt.md")" "gate.sh"
+GATE_CMD="/opt/labgate/run-gate" SPEC_DIR="/opt/labgate/spec" "$B" "$S/render_arm.sh" B rG 59101 >/dev/null 2>&1
+has "GATE_CMD/SPEC_DIR overrides reach the prompt" "$(cat "$T/rG.prompt.md")" "/opt/labgate/run-gate $T/rG 59101"
+printf 'go to {{NOPE}}\n' > "$LAB_ROOT/spec/arms/arm-Z.md"
+"$B" "$S/render_arm.sh" Z rZ 59102 >/dev/null 2>&1; chk "an unknown placeholder -> refused (3)" "$?" "3"
+chk "  ...and leaves no prompt behind" "$( [ -e "$T/rZ.prompt.md" ] && echo left || echo none)" "none"
+"$B" "$S/render_arm.sh" Q rQ 59103 >/dev/null 2>&1; chk "a missing arm file -> refused (2)" "$?" "2"
+for n in rA rB rC rD rG rZ; do "$B" "$S/rm_trial.sh" $n >/dev/null 2>&1 || echo "  rm_trial $n failed"; done
 
 echo "== teardown"
 rm -rf "$T/t6" 2>/dev/null; chk "a plain rm -rf on a sealed trial FAILS (why the unseal matters)" "$?" "1"

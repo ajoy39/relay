@@ -40,7 +40,7 @@ chk "  ...created nothing" "$( [ -e "$T/bad" ] && echo made || echo none)" "none
 echo "== BROKEN, never a pass"
 mk b1; echo mode=whatever > "$T/b1.vendor-baseline"; vv b1 >/dev/null; chk "unknown mode -> 3" "$?" "3"
 mk b2; git -C "$T/b2" rm -q --cached composer.lock; vv b2 >/dev/null; chk "composer.lock untracked -> 3" "$?" "3"
-mk b3; rm "$T/b3/.git"; vv b3 >/dev/null; chk "not a git worktree -> 3" "$?" "3"
+mk b3; rm -rf "$T/b3/.git"; vv b3 >/dev/null; chk "not a git checkout -> 3" "$?" "3"
 
 echo "== teardown"
 for n in s1 s2 s3 s4 w1 b1 b2 b3; do "$B" "$S/rm_trial.sh" $n >/dev/null 2>&1 || echo "  rm_trial $n failed"; done

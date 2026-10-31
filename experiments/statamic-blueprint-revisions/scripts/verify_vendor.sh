@@ -14,7 +14,7 @@
 # the trial clean. Composer writes composer.json and the lock file, then fails at
 # mkdir, and does not revert them (measured, Composer 2.8.12). vendor/ is intact,
 # so a vendor-only check passed it. Both files are compared with the trial
-# worktree's HEAD.
+# checkout's HEAD.
 #
 # Writable trials (created with VENDOR_WRITABLE=1) are reported, not judged.
 # Exit: 0 intact (or writable), 1 changed, 3 BROKEN — a check that cannot
@@ -31,7 +31,7 @@ broken() { echo "VENDOR: BROKEN — $1" >&2; exit 3; }
 MODE="$(sed -n 's/^mode=//p' "$BASELINE")"
 case "$MODE" in sealed|writable) ;; *) broken "baseline names no known mode ('$MODE')" ;; esac
 git -C "$DIR" rev-parse --verify -q HEAD >/dev/null 2>&1 \
-  || broken "$DIR is not a git worktree, so the manifest has no baseline"
+  || broken "$DIR is not a git checkout, so the manifest has no baseline"
 
 # Into a file, not a pipe into head: a find error must be BROKEN, never "intact".
 OUT="$(mktemp)"; trap 'rm -f "$OUT"' EXIT

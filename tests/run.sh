@@ -6,7 +6,7 @@ cd "$(dirname "$0")" || exit 3
 BASH_UT="${BASH_UT:-/bin/bash}"; export BASH_UT
 echo "bash under test: $BASH_UT ($("$BASH_UT" -c 'echo $BASH_VERSION'))"
 summary=""; any_fail=0; any_broken=0
-for s in test_scripts test_isolation test_vendor_manifest test_linux_mount; do
+for s in test_scripts test_gate test_isolation test_vendor_manifest test_linux_mount; do
   echo; echo "==================== $s"
   "$BASH_UT" "./$s.sh"; rc=$?
   case "$rc" in
