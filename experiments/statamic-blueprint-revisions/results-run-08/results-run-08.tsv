@@ -1,0 +1,2 @@
+trial	phase	arm	model	trial_rc	minutes	score	gate	score_runs	spec	vendor	own_gate_runs	own_gate_refused	direct_gate_sh	notes
+cal01	calibration	D	claude-haiku-4-5	0	14	NORESULT	NORESULT	NORESULT,NORESULT	intact	 echo intact ;; 1) echo CHANGED ;; *) echo BROKEN ;; esac)	4	2	4	needs a -rerun
