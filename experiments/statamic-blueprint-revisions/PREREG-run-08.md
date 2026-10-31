@@ -1,8 +1,9 @@
-# Run 08 — pre-registration (DRAFT, not yet frozen)
+# Run 08 — pre-registration (FROZEN 2026-10-30)
 
-Written before any run-08 trial exists. Once Alec approves it, this file is
-frozen: later edits go in a dated *Amendments* section at the end, never into
-the text above it. Results go in `RESULTS-run-08.md`, which must be read
+Written before any run-08 trial exists. Alec decided the open questions on
+2026-10-30 (*Decisions*, below), and the file was frozen then. From here on,
+edits go in a dated *Amendments* section at the end, never into the text
+above it. Results go in `RESULTS-run-08.md`, which must be read
 against this file.
 
 ## Question
@@ -74,16 +75,28 @@ load and API behaviour can't line up with an arm.
 - **Ticket and arms:** `spec/arms/arm-{A,B,C,D}.md` at the frozen commit.
   These are run 07's arm texts; the only change is that paths now come from
   `{{SPEC_DIR}}` and `{{GATE_CMD}}` instead of `/home/user/lab`.
-- **Model:** a Claude Code subagent per trial, `model` pinned to the full ID,
-  never an alias like `haiku`.
-- **Tools:** narrowed per trial (run 07: one trial scheduled a Routine that
-  fired into the parent session). Exact list: *to be fixed before freezing.*
+- **Who runs a trial:** a separate, non-admin macOS user, **`labtrial`**,
+  whose primary group is not `staff`, so it can't read `/Users/ajoy`: not
+  this repo, the stub implementation, `docs/`, neocortex, or the gate. Each
+  trial is one headless `claude -p` process run as `labtrial` in the trial's
+  directory. **Not a subagent:** subagents run as the parent session's user.
+  Run 07's trials were subagents in a sandbox that held nothing else.
+- **Model:** `--model` pinned to the full ID (`claude-haiku-4-5`,
+  `claude-haiku-5-5`), never an alias like `haiku`.
+- **Tools:** exactly `Bash`, `Read`, `Edit`, `Write`, `Grep`, `Glob`. No web
+  tools, no subagents, no scheduling or routines, no MCP servers. Run 07: one
+  trial scheduled a Routine that fired into the parent session.
 - **Isolation:** one `git clone --shared` per trial with its own refs, stash and
   no remote; a sealed APFS-clone `vendor/`; its own port and SQLite file.
-- **Arm A blindness:** *depends on an open decision (below).* If the gate is
-  not moved out of the trials' reach, arm A is reported as **"no acceptance
-  command given, checker reachable"**, exactly as run 07's caveat says, and
-  never as blind. `/tmp/gate-audit.log` is checked for every trial either way.
+- **The gate:** lives in `ajoy`'s space, unreadable by `labtrial`. Arms B–D
+  run it through one `sudo` rule that allows `labtrial` a single wrapper
+  script, which validates its arguments and runs the gate as `ajoy`.
+- **Arm A blindness:** the wrapper knows each trial's arm from the
+  (unreadable) schedule and **refuses arm-A trials** without running the
+  gate. An arm-A trial that finds the wrapper gets no verdict, so arm A is
+  blind for the first time in this experiment. Every invocation, including
+  refusals, goes to `/tmp/gate-audit.log`, and attempts by arm-A trials are
+  reported as a finding.
 
 ## Measurement
 
@@ -93,7 +106,8 @@ load and API behaviour can't line up with an arm.
   scope violations (files outside the allowed set); `verify_vendor`
   findings.
 - **The gate is run by the architect after the trial ends**, never taken from
-  the trial's report. Score on the trial's last notification.
+  the trial's report. Score only after the trial's `claude -p` process has
+  exited (run 07's equivalent: its last notification).
 - **Confirm on margin:** any 5/6 or 6/6 is re-run once. If the two runs
   disagree, a third decides.
 - **NORESULT is never recorded as a score.** The trial is re-scored. If the gate
@@ -129,20 +143,16 @@ All on relay branch `claude/run-08-instrument`:
   refused.
 - `401a185`: per-trial clones; run 07's shared stash can't recur.
 
-## Open decisions before freezing (Alec's)
+## Decisions (Alec, 2026-10-30)
 
-1. **How the gate leaves the trials' reach:** a separate macOS user that owns
-   `spec/` and runs the gate via a narrow `sudo` rule (strongest), or
-   tool-level deny rules on the trial subagents (weaker; a determined trial
-   can still find the files through some other route). **The same applies to
-   the answer key.** On the mini, trials run as `ajoy`, who can read this
-   whole repo: `reference/stub-implementation.patch` (a correct
-   implementation) and relay's `docs/`. Run 07's cloud sandbox didn't have
-   the repo next to the lab. Whatever hides the gate must also hide
-   `~/Projects`, or arm results can't be trusted at all.
-2. **Calibration:** keep phase 1, or accept "uncalibrated" labelling?
-3. **Stop at the pilot if it hits the ceiling:** agree with the 22/24 rule?
-4. The exact tool list for trial subagents.
+1. **Reach:** trials run as a separate macOS user (`labtrial`), so the gate,
+   the stub implementation, `docs/` and everything else in `/Users/ajoy` is
+   out of reach (see *Treatment*). Chosen over same-user tool restrictions,
+   which only block the routes someone thought of. Setup:
+   `SETUP-trial-user.md`.
+2. **Calibration:** kept. Phase 1 runs before any Haiku 5.5 trial.
+3. **Ceiling stop:** agreed. 22/24 or more green in the pilot ends the run.
+4. **Tools:** `Bash`, `Read`, `Edit`, `Write`, `Grep`, `Glob` only.
 
 ## Amendments
 
