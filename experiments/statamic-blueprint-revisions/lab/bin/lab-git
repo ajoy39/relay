@@ -20,10 +20,21 @@ export HOME PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" GIT_CONFIG_NO
        GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 GIT_PAGER=cat PAGER=cat
 refuse() { echo "lab-git: refused: $1" >&2; exit 3; }
 
-[ "$#" -eq 2 ] && [ "$1" = patch ] || refuse "usage: lab-git patch <trial>"
+[ "$#" -eq 2 ] && { [ "$1" = patch ] || [ "$1" = release ]; } || refuse "usage: lab-git patch|release <trial>"
 TRIAL="$2"
 case "$TRIAL" in ''|*[!A-Za-z0-9_-]*) refuse "bad trial name" ;; esac
 DIR="$ROOT/trials/$TRIAL"
+
+# release: make what labgate created in this trial (the gate's caches, logs,
+# database writes) group-writable, so the owner's rm_trial.sh can delete it.
+# Laravel creates some directories with fixed modes that ignore the umask.
+# Only files this user owns, never through a symlink, never outside the trial.
+if [ "$1" = release ]; then
+  [ -d "$DIR" ] || refuse "no trial at $DIR"
+  find "$DIR" ! -type l -user "$(id -un)" -exec chmod g+rwX {} + 2>/dev/null
+  exit 0
+fi
+
 [ -d "$DIR/.git" ] || refuse "no trial repo at $DIR"
 
 g() {

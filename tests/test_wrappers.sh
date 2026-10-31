@@ -112,6 +112,20 @@ lg patch p1
 chk "a trial's core.fsmonitor never runs" "$( [ -e "$WORK/fsmonitor-ran" ] && echo ran || echo no)" "no"
 chk "a trial's core.pager never runs" "$( [ -e "$WORK/pager-ran" ] && echo ran || echo no)" "no"
 lg patch "../p1"; chk "a path in the trial name -> refused" "$rc" "3"
-lg log p1; chk "anything but patch -> refused" "$rc" "3"
+lg log p1; chk "anything but patch or release -> refused" "$rc" "3"
+
+echo "== release (before rm_trial.sh): open up own files, never through a symlink"
+mkdir -p "$R/storage/cache"; chmod 755 "$R/storage/cache"; echo x > "$R/storage/cache/f"; chmod 644 "$R/storage/cache/f"
+echo outside > "$WORK/outside.txt"; chmod 600 "$WORK/outside.txt"; ln -s "$WORK/outside.txt" "$R/storage/link"
+lg release p1; chk "lab-git release -> 0" "$rc" "0"
+chk "  ...a fixed-mode dir it owns becomes group-writable" "$(ls -ld "$R/storage/cache" | cut -c5-7)" "rwx"
+chk "  ...and its files" "$(ls -l "$R/storage/cache/f" | cut -c5-6)" "rw"
+chk "  ...a symlink's target outside the trial is untouched" "$(ls -l "$WORK/outside.txt" | cut -c1-10)" "-rw-------"
+chmod 755 "$R/storage/cache"
+fake_home_run --release p1; chk "run-trial --release -> 0" "$rc" "0"
+chk "  ...opens up the same dir" "$(ls -ld "$R/storage/cache" | cut -c5-7)" "rwx"
+chk "  ...still never through the symlink" "$(ls -l "$WORK/outside.txt" | cut -c1-10)" "-rw-------"
+fake_home_run --release "../p1"; chk "run-trial --release with a path -> refused" "$rc" "3"
+lg release "p1;id"; chk "lab-git release with shell text -> refused" "$rc" "3"
 
 finish

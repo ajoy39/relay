@@ -28,7 +28,20 @@ HOME="$(eval echo "~$(id -un)")"
 export HOME PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 refuse() { echo "run-trial: refused: $1" >&2; exit 3; }
 
-[ "$#" -eq 2 ] || refuse "usage: run-trial <trial> <model>"
+[ "$#" -eq 2 ] || refuse "usage: run-trial <trial> <model> | run-trial --release <trial>"
+
+# --release: make what labtrial created in this trial group-writable, so the
+# owner's rm_trial.sh can delete it (tools such as artisan create directories
+# with fixed modes that ignore the umask). Only files this user owns, never
+# through a symlink, never outside the trial.
+if [ "$1" = --release ]; then
+  TRIAL="$2"
+  case "$TRIAL" in ''|*[!A-Za-z0-9_-]*) refuse "bad trial name" ;; esac
+  [ -d "$ROOT/trials/$TRIAL" ] || refuse "no trial directory"
+  find "$ROOT/trials/$TRIAL" ! -type l -user "$(id -un)" -exec chmod g+rwX {} + 2>/dev/null
+  exit 0
+fi
+
 TRIAL="$1"; MODEL="$2"
 case "$TRIAL" in ''|*[!A-Za-z0-9_-]*) refuse "bad trial name" ;; esac
 case " $MODELS " in *" $MODEL "*) ;; *) refuse "model $MODEL is not one of: $MODELS" ;; esac
