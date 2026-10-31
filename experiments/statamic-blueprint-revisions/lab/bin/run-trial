@@ -1,0 +1,56 @@
+#!/bin/bash
+# run-trial <trial> <model> — run one run-08 trial: a headless Claude session
+# as `labtrial`, in the trial's own directory, on the prompt render_arm.sh
+# wrote.
+#
+# Installed root-owned at /Users/Shared/lab/bin/run-trial and run as
+# `labtrial` by the owner through sudo. PREREG-run-08.md, *Treatment*: the
+# model is pinned to a full ID from a fixed list; tools are exactly Bash,
+# Read, Edit, Write, Grep and Glob; no MCP servers. bypassPermissions lets the
+# trial run unattended, which is acceptable only because labtrial is the
+# boundary: it can't read the owner's files or the gate.
+#
+# Writes next to the trial: <trial>.transcript.jsonl (stream-json),
+# <trial>.stderr and <trial>.exit. Exit: claude's exit status, 124 on the time
+# limit, or 3 when refused.
+set -u
+umask 002
+
+ROOT=/Users/Shared/lab
+MODELS="claude-haiku-4-5 claude-haiku-5-5"
+LIMIT=3600
+# Tests relocate the lab, the models and the limit, but never under sudo.
+if [ -z "${SUDO_USER:-}" ]; then
+  ROOT="${RUN_TRIAL_TEST_ROOT:-$ROOT}"; MODELS="${RUN_TRIAL_TEST_MODELS:-$MODELS}"
+  LIMIT="${RUN_TRIAL_TEST_LIMIT:-$LIMIT}"
+fi
+HOME="$(eval echo "~$(id -un)")"
+export HOME PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+refuse() { echo "run-trial: refused: $1" >&2; exit 3; }
+
+[ "$#" -eq 2 ] || refuse "usage: run-trial <trial> <model>"
+TRIAL="$1"; MODEL="$2"
+case "$TRIAL" in ''|*[!A-Za-z0-9_-]*) refuse "bad trial name" ;; esac
+case " $MODELS " in *" $MODEL "*) ;; *) refuse "model $MODEL is not one of: $MODELS" ;; esac
+DIR="$ROOT/trials/$TRIAL"; PROMPT="$ROOT/trials/$TRIAL.prompt.md"
+[ -d "$DIR" ] || refuse "no trial directory $DIR"
+[ -s "$PROMPT" ] || refuse "no prompt at $PROMPT"
+TOKEN_FILE="$HOME/.config/relay/claude-oauth-token"
+[ -s "$TOKEN_FILE" ] || refuse "no token file (see SETUP-trial-user.md, step 3)"
+case "$(ls -l "$TOKEN_FILE" | cut -c1-10)" in -rw-------) ;; *) refuse "token file must be mode 600" ;; esac
+command -v claude >/dev/null || refuse "claude is not installed for $(id -un)"
+
+OUT="$ROOT/trials/$TRIAL"
+cd "$DIR" || refuse "cannot enter $DIR"
+# perl's alarm is the time limit (macOS has no timeout(1)); SIGALRM -> 142.
+CLAUDE_CODE_OAUTH_TOKEN="$(cat "$TOKEN_FILE")" perl -e 'alarm shift; exec @ARGV or die' "$LIMIT" \
+  claude -p --model "$MODEL" \
+    --tools "Bash,Read,Edit,Write,Grep,Glob" \
+    --permission-mode bypassPermissions \
+    --strict-mcp-config \
+    --output-format stream-json --verbose \
+  < "$PROMPT" > "$OUT.transcript.jsonl" 2> "$OUT.stderr"
+RC=$?
+[ "$RC" -eq 142 ] && RC=124
+echo "$RC" > "$OUT.exit"
+exit "$RC"

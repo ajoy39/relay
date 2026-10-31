@@ -12,7 +12,9 @@ S="${LAB_ROOT:-}/spec"
 # up from a trial's worktree (../../spec/gate.sh), and in run 07 trials found it and ran it. This file
 # is the only thing that distinguishes a blind arm from a confounded one. Without
 # it the confound is invisible and the arm's result reads as a capability finding.
-echo "$(date +%s) $APP $$" >> /tmp/gate-audit.log
+# GATE_AUDIT_LOG: run-gate points it into the gate's own area (run 08), where
+# the gate's user can write and trials can't read.
+echo "$(date +%s) $APP $$" >> "${GATE_AUDIT_LOG:-/tmp/gate-audit.log}"
 
 # The lab lives under LAB_ROOT (README: "Rebuilding the lab"). Unset is BROKEN,
 # exit 3 — not RED, exit 1. A missing setting must never be able to score a trial.

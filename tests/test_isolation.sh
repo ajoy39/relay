@@ -22,6 +22,17 @@ vv t1; chk "fresh trial -> intact (0)" "$?" "0"
 cat $(find "$D/vendor" -type f) >/dev/null
 vv t1; chk "reading every file -> still intact (no false positive)" "$?" "0"
 
+echo "== shared with the trial and gate users through the group (run 08)"
+D1="$T/t1"
+perm() { ls -ld "$1" | cut -c1-10; }
+case "$(perm "$D1/database/database.sqlite")" in ????rw????) r=yes ;; *) r=no ;; esac
+chk "the trial's database is group read+write" "$r" "yes"
+case "$(perm "$D1/.git")" in ????rw[xs]???) r=yes ;; *) r=no ;; esac
+chk "its .git is group-writable (the trial user commits)" "$r" "yes"
+case "$(perm "$D1/vendor/autoload.php")" in ?????w????) r=writable ;; *) r=sealed ;; esac
+chk "vendor/ stays sealed to the group too" "$r" "sealed"
+vv t1; chk "and still verifies intact after the chmods" "$?" "0"
+
 echo "== git state is the trial's own (run 07: shared refs/stash)"
 "$B" "$S/new_trial.sh" g1 >/dev/null 2>&1; "$B" "$S/new_trial.sh" g2 >/dev/null 2>&1
 echo work > "$T/g1/file.txt"; git -C "$T/g1" add file.txt; git -C "$T/g1" stash -q

@@ -1,0 +1,68 @@
+#!/bin/bash
+# run-gate <app-dir> <port> — run 08's only route to the gate.
+#
+# Installed root-owned at /Users/Shared/lab/bin/run-gate and run as `labgate`
+# through sudo: by `labtrial` (an arm B-D trial asking for a verdict) or by the
+# owner (scoring). See PREREG-run-08.md, Amendment A1. It trusts nothing from
+# its caller: fixed paths, its own HOME/PATH/umask, and every argument checked
+# against the schedule before anything runs. Every call, refusals included,
+# goes to the gate's audit log.
+#
+# Exit: whatever gate.sh exits (0 GREEN, 1 RED, 3 BROKEN/NORESULT), or 3 when
+# refused. A refusal never runs the gate, so it can never produce a verdict.
+set -u
+umask 002
+
+ROOT=/Users/Shared/lab
+OWNER=ajoy
+CALLER="${SUDO_USER:-$(id -un)}"
+# Tests relocate the lab and name the caller, but never under sudo.
+if [ -z "${SUDO_USER:-}" ]; then
+  ROOT="${RUN_GATE_TEST_ROOT:-$ROOT}"; OWNER="${RUN_GATE_TEST_OWNER:-$OWNER}"
+  CALLER="${RUN_GATE_TEST_CALLER:-$CALLER}"
+fi
+GATE="$ROOT/gate"
+HOME="$(eval echo "~$(id -un)")"
+export HOME LAB_ROOT="$ROOT" PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PLAYWRIGHT_BROWSERS_PATH="$GATE/browsers" GATE_AUDIT_LOG="$GATE/log/gate-audit.log"
+
+audit()  { echo "$(date +%s) run-gate caller=$CALLER $*" >> "$GATE_AUDIT_LOG"; }
+refuse() { audit "REFUSED $1 args=[${ARGS:-}]"; echo "run-gate: refused: $1" >&2; exit 3; }
+ARGS="$*"
+
+[ "$#" -eq 2 ] || refuse "usage: run-gate <app-dir> <port>"
+APP_ARG="$1"; PORT="$2"
+case "$PORT" in [1-9][0-9][0-9][0-9]|[1-9][0-9][0-9][0-9][0-9]) ;; *) refuse "port must be 4-5 digits" ;; esac
+TRIALS="$(cd "$ROOT/trials" 2>/dev/null && pwd -P)" || refuse "no trials directory"
+APP="$(cd "$APP_ARG" 2>/dev/null && pwd -P)" || refuse "no such app directory"
+TRIAL="${APP##*/}"
+case "$TRIAL" in ''|*[!A-Za-z0-9_-]*) refuse "bad trial name" ;; esac
+[ "$APP" = "$TRIALS/$TRIAL" ] || refuse "not a trial directory"
+
+# The schedule (gate area, unreadable by trials): trial<TAB>arm<TAB>port<TAB>model.
+ROW="$(awk -F '\t' -v t="$TRIAL" '$1 == t { print; exit }' "$GATE/schedule.tsv" 2>/dev/null)"
+[ -n "$ROW" ] || refuse "trial $TRIAL is not on the schedule"
+ARM="$(printf '%s' "$ROW" | cut -f2)"; SPORT="$(printf '%s' "$ROW" | cut -f3)"
+[ "$PORT" = "$SPORT" ] || refuse "port $PORT is not trial $TRIAL's port"
+# Arm A is blind: its trials get no verdict. The owner may gate any trial (scoring).
+if [ "$ARM" = A ] && [ "$CALLER" != "$OWNER" ]; then
+  refuse "no acceptance command is available for this trial"
+fi
+
+# One gate at a time (Amendment A1). mkdir is atomic; a stale lock older than
+# an hour is taken over, and that is logged.
+LOCK="$GATE/log/gate.lock"; waited=0
+until mkdir "$LOCK" 2>/dev/null; do
+  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +60 2>/dev/null)" ]; then
+    audit "STALE LOCK taken over"; rmdir "$LOCK" 2>/dev/null; continue
+  fi
+  sleep 2; waited=$((waited + 2))
+  [ "$waited" -lt 3600 ] || refuse "timed out waiting for the gate lock"
+done
+trap 'rmdir "$LOCK" 2>/dev/null' EXIT
+
+audit "RUN trial=$TRIAL arm=$ARM port=$PORT"
+bash "$GATE/spec/gate.sh" "$APP" "$PORT"
+RC=$?
+audit "DONE trial=$TRIAL rc=$RC"
+exit "$RC"

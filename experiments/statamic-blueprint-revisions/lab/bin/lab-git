@@ -1,0 +1,36 @@
+#!/bin/bash
+# lab-git patch <trial> — print a trial's work as one patch against main,
+# untracked files included.
+#
+# Installed root-owned at /Users/Shared/lab/bin/lab-git and run as `labgate`
+# by the owner through sudo (Amendment A1): a trial's .git is written by the
+# trial, and repo config can make git run commands (core.fsmonitor, diff
+# drivers, textconv, hooks, a pager). Every one of those is switched off on
+# the command line, and it still runs as a user who can't read the answers.
+# One route can't be switched off this way: a clean filter named in the
+# trial's .gitattributes runs during `git add`. That is why this runs as
+# labgate, the user already trusted to execute trial code (the gate does).
+set -u
+umask 002
+ROOT=/Users/Shared/lab
+[ -z "${SUDO_USER:-}" ] && ROOT="${LAB_GIT_TEST_ROOT:-$ROOT}"
+HOME="$(eval echo "~$(id -un)")"
+export HOME PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" GIT_CONFIG_NOSYSTEM=1 \
+       GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 GIT_PAGER=cat PAGER=cat
+refuse() { echo "lab-git: refused: $1" >&2; exit 3; }
+
+[ "$#" -eq 2 ] && [ "$1" = patch ] || refuse "usage: lab-git patch <trial>"
+TRIAL="$2"
+case "$TRIAL" in ''|*[!A-Za-z0-9_-]*) refuse "bad trial name" ;; esac
+DIR="$ROOT/trials/$TRIAL"
+[ -d "$DIR/.git" ] || refuse "no trial repo at $DIR"
+
+g() {
+  git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c core.pager=cat \
+      -c diff.external= -c core.attributesFile=/dev/null -c safe.directory="$DIR" \
+      -C "$DIR" "$@"
+}
+# Mark untracked files intent-to-add so the diff shows them. That writes the
+# trial's index, which is fine: patches are taken after the trial has ended.
+g add --intent-to-add --all >/dev/null 2>&1 || refuse "git add -N failed"
+g --no-pager diff --no-ext-diff --no-textconv --binary main
