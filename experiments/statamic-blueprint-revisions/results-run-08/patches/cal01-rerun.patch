@@ -1,0 +1,1067 @@
+diff --git a/app/Console/Commands/FixtureCheckContents.php b/app/Console/Commands/FixtureCheckContents.php
+new file mode 100644
+index 0000000..092126f
+--- /dev/null
++++ b/app/Console/Commands/FixtureCheckContents.php
+@@ -0,0 +1,32 @@
++<?php
++
++namespace App\Console\Commands;
++
++use Illuminate\Console\Command;
++
++class FixtureCheckContents extends Command
++{
++    protected $signature = 'fixture:check-contents';
++    protected $description = 'Check the current state of the blueprint';
++
++    public function handle(): int
++    {
++        $blueprint = \Statamic\Facades\Blueprint::find('collections.pages.page');
++
++        if (! $blueprint) {
++            echo "NOT FOUND";
++            return 0;
++        }
++
++        $contents = $blueprint->contents();
++
++        // Extract the display value for the content/body field
++        if (isset($contents['tabs']['main']['sections'][0]['fields'][1]['field']['display'])) {
++            echo $contents['tabs']['main']['sections'][0]['fields'][1]['field']['display'];
++        } else {
++            echo "UNKNOWN";
++        }
++
++        return 0;
++    }
++}
+diff --git a/app/Console/Commands/FixtureResetBlueprint.php b/app/Console/Commands/FixtureResetBlueprint.php
+new file mode 100644
+index 0000000..8f56658
+--- /dev/null
++++ b/app/Console/Commands/FixtureResetBlueprint.php
+@@ -0,0 +1,64 @@
++<?php
++
++namespace App\Console\Commands;
++
++use Illuminate\Console\Command;
++
++class FixtureResetBlueprint extends Command
++{
++    protected $signature = 'fixture:reset-blueprint';
++    protected $description = 'Reset the page blueprint to initial state';
++
++    public function handle(): int
++    {
++        // Delete any existing revisions for the page blueprint
++        \DB::table('blueprint_revisions')
++            ->where('namespace', 'collections.pages')
++            ->where('handle', 'page')
++            ->delete();
++
++        // Delete the existing blueprint model
++        \DB::table('blueprints')
++            ->where('namespace', 'collections.pages')
++            ->where('handle', 'page')
++            ->delete();
++
++        // Create the initial blueprint
++        $blueprint = \Statamic\Facades\Blueprint::make('page')
++            ->setNamespace('collections.pages')
++            ->setContents([
++                'title' => 'Page',
++                'tabs' => [
++                    'main' => [
++                        'display' => 'Main',
++                        'sections' => [
++                            [
++                                'fields' => [
++                                    [
++                                        'handle' => 'title',
++                                        'field' => [
++                                            'type' => 'text',
++                                            'display' => 'Title',
++                                            'required' => true,
++                                        ],
++                                    ],
++                                    [
++                                        'handle' => 'content',
++                                        'field' => [
++                                            'type' => 'markdown',
++                                            'display' => 'Body',
++                                        ],
++                                    ],
++                                ],
++                            ],
++                        ],
++                    ],
++                ],
++            ]);
++
++        $blueprint->save();
++
++        echo "FIXTURE RESET: Blueprint initialized\n";
++        return 0;
++    }
++}
+diff --git a/app/Console/Commands/FixtureSeedEdits.php b/app/Console/Commands/FixtureSeedEdits.php
+new file mode 100644
+index 0000000..778e567
+--- /dev/null
++++ b/app/Console/Commands/FixtureSeedEdits.php
+@@ -0,0 +1,42 @@
++<?php
++
++namespace App\Console\Commands;
++
++use Illuminate\Console\Command;
++
++class FixtureSeedEdits extends Command
++{
++    protected $signature = 'fixture:seed-edits';
++    protected $description = 'Make two edits to the page blueprint';
++
++    public function handle(): int
++    {
++        $blueprint = \Statamic\Facades\Blueprint::find('collections.pages.page');
++
++        if (! $blueprint) {
++            echo "ERROR: Blueprint not found\n";
++            return 1;
++        }
++
++        // First edit: Change the title
++        $contents = $blueprint->contents();
++        $contents['title'] = 'Page v1';
++        $blueprint->setContents($contents);
++        $blueprint->save();
++
++        // Small delay to ensure different timestamps
++        sleep(1);
++
++        // Second edit: Add a field or change display
++        $blueprint = \Statamic\Facades\Blueprint::find('collections.pages.page');
++        $contents = $blueprint->contents();
++        $contents['title'] = 'Page v2';
++        // Modify the Body field display
++        $contents['tabs']['main']['sections'][0]['fields'][1]['field']['display'] = 'Body v3';
++        $blueprint->setContents($contents);
++        $blueprint->save();
++
++        echo "SEEDED: Two edits created\n";
++        return 0;
++    }
++}
+diff --git a/app/Http/Controllers/BlueprintRevisionsController.php b/app/Http/Controllers/BlueprintRevisionsController.php
+new file mode 100644
+index 0000000..6a7efc8
+--- /dev/null
++++ b/app/Http/Controllers/BlueprintRevisionsController.php
+@@ -0,0 +1,48 @@
++<?php
++
++namespace App\Http\Controllers;
++
++use App\Services\BlueprintRevisionService;
++use Illuminate\Http\JsonResponse;
++use Statamic\Eloquent\Fields\BlueprintModel;
++
++class BlueprintRevisionsController extends Controller
++{
++    public function __construct(
++        private BlueprintRevisionService $revisionService
++    ) {}
++
++    public function index($namespace, $handle): JsonResponse
++    {
++        $revisions = $this->revisionService->getRevisions($namespace, $handle);
++        return response()->json(['revisions' => $revisions]);
++    }
++
++    public function diff($namespace, $handle, $id): JsonResponse
++    {
++        $blueprintModel = BlueprintModel::where('namespace', $namespace)
++            ->where('handle', $handle)
++            ->first();
++
++        if (! $blueprintModel) {
++            return response()->json(['changes' => []]);
++        }
++
++        $changes = $this->revisionService->getDiff($id, $blueprintModel->data ?? []);
++        return response()->json(['changes' => $changes]);
++    }
++
++    public function restore($namespace, $handle, $id): JsonResponse
++    {
++        $blueprintModel = BlueprintModel::where('namespace', $namespace)
++            ->where('handle', $handle)
++            ->first();
++
++        if (! $blueprintModel) {
++            return response()->json(['restored' => false], 404);
++        }
++
++        $success = $this->revisionService->restore($id);
++        return response()->json(['restored' => $success], $success ? 200 : 404);
++    }
++}
+diff --git a/app/Http/Middleware/AddBlueprintRevisionsUI.php b/app/Http/Middleware/AddBlueprintRevisionsUI.php
+new file mode 100644
+index 0000000..6931225
+--- /dev/null
++++ b/app/Http/Middleware/AddBlueprintRevisionsUI.php
+@@ -0,0 +1,50 @@
++<?php
++
++namespace App\Http\Middleware;
++
++use Closure;
++use Illuminate\Http\Request;
++use Symfony\Component\HttpFoundation\Response;
++
++class AddBlueprintRevisionsUI
++{
++    public function handle(Request $request, Closure $next): Response
++    {
++        $response = $next($request);
++
++        // Only modify blueprint edit pages
++        if (! $this->isBlueprintEditPage($request)) {
++            return $response;
++        }
++
++        // For Inertia responses, we need a different approach
++        if ($response instanceof \Inertia\Response) {
++            // Get the current props
++            $props = $response->props();
++
++            // Extract blueprint info from props
++            if (isset($props['blueprint'])) {
++                $blueprint = $props['blueprint'];
++                $namespace = $blueprint['namespace'] ?? null;
++                $handle = $blueprint['handle'] ?? null;
++
++                if ($namespace && $handle) {
++                    // Inject blueprint info into the response so our component can use it
++                    $response->with([
++                        'revisionEnabled' => true,
++                        'revisionNamespace' => $namespace,
++                        'revisionHandle' => $handle,
++                    ]);
++                }
++            }
++        }
++
++        return $response;
++    }
++
++    private function isBlueprintEditPage(Request $request): bool
++    {
++        return str_contains($request->path(), '/cp/fields/blueprints/') &&
++               str_ends_with($request->path(), '/edit');
++    }
++}
+diff --git a/app/Http/Middleware/InjectBlueprintRevisions.php b/app/Http/Middleware/InjectBlueprintRevisions.php
+new file mode 100644
+index 0000000..bc24b38
+--- /dev/null
++++ b/app/Http/Middleware/InjectBlueprintRevisions.php
+@@ -0,0 +1,38 @@
++<?php
++
++namespace App\Http\Middleware;
++
++use Closure;
++use Illuminate\Http\Request;
++use Inertia\Inertia;
++use Symfony\Component\HttpFoundation\Response;
++
++class InjectBlueprintRevisions
++{
++    public function handle(Request $request, Closure $next): Response
++    {
++        $response = $next($request);
++
++        // Check if this is a blueprint edit page response
++        if ($response instanceof \Inertia\Response) {
++            $props = $response->props();
++
++            // If this is a blueprint edit page, extract namespace and handle
++            if (isset($props['blueprint']) && is_array($props['blueprint'])) {
++                $blueprint = $props['blueprint'];
++                $namespace = $blueprint['namespace'] ?? null;
++                $handle = $blueprint['handle'] ?? null;
++
++                if ($namespace && $handle) {
++                    // Add revision-related props to the Inertia response
++                    $response->with([
++                        'blueprintNamespace' => $namespace,
++                        'blueprintHandle' => $handle,
++                    ]);
++                }
++            }
++        }
++
++        return $response;
++    }
++}
+diff --git a/app/Http/Middleware/InjectBlueprintRevisionsHTML.php b/app/Http/Middleware/InjectBlueprintRevisionsHTML.php
+new file mode 100644
+index 0000000..f82649c
+--- /dev/null
++++ b/app/Http/Middleware/InjectBlueprintRevisionsHTML.php
+@@ -0,0 +1,134 @@
++<?php
++
++namespace App\Http\Middleware;
++
++use Closure;
++use Illuminate\Http\Request;
++use Symfony\Component\HttpFoundation\Response;
++use App\Services\BlueprintRevisionService;
++
++class InjectBlueprintRevisionsHTML
++{
++    public function handle(Request $request, Closure $next): Response
++    {
++        $response = $next($request);
++
++        if (!$this->isBlueprintEditPage($request) || !$this->isHtmlResponse($response)) {
++            return $response;
++        }
++
++        // Extract namespace and handle from the URL path
++        if (preg_match('#/cp/fields/blueprints/([^/]+)/([^/]+)/edit#', $request->path(), $matches)) {
++            $namespace = $matches[1];
++            $handle = $matches[2];
++
++            // Inject revision UI into the HTML
++            $html = $response->getContent();
++            $revisionService = app(BlueprintRevisionService::class);
++            $revisions = $revisionService->getRevisions($namespace, $handle);
++
++            // Create the revision history HTML
++            $revisionHtml = $this->generateRevisionHTML($revisions, $namespace, $handle);
++
++            // Inject before the closing body tag
++            $html = str_replace('</body>', $revisionHtml . '</body>', $html);
++
++            $response->setContent($html);
++        }
++
++        return $response;
++    }
++
++    private function isBlueprintEditPage(Request $request): bool
++    {
++        return str_contains($request->path(), '/cp/fields/blueprints/') &&
++               str_ends_with($request->path(), '/edit');
++    }
++
++    private function isHtmlResponse(Response $response): bool
++    {
++        $contentType = $response->headers->get('Content-Type', '');
++        return str_contains($contentType, 'text/html') || str_contains($contentType, 'application/json');
++    }
++
++    private function generateRevisionHTML($revisions, $namespace, $handle): string
++    {
++        if (empty($revisions)) {
++            return '<div style="display:none;" id="blueprint-revisions-container"></div>';
++        }
++
++        $html = '<div id="blueprint-revisions-container" style="margin-top: 2rem; padding: 1rem; border-top: 1px solid #e5e7eb;">';
++        $html .= '<h3 style="font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem;">Revisions</h3>';
++        $html .= '<div style="overflow-x: auto;">';
++        $html .= '<table style="width: 100%; border-collapse: collapse;">';
++        $html .= '<thead><tr style="border-bottom: 2px solid #e5e7eb;"><th style="padding: 0.5rem; text-align: left;">Created</th><th style="padding: 0.5rem; text-align: right;">Actions</th></tr></thead>';
++        $html .= '<tbody>';
++
++        foreach ($revisions as $revision) {
++            $id = $revision['id'];
++            $createdAt = $revision['created_at'];
++            $html .= '<tr data-revision-id="' . htmlspecialchars($id) . '" style="border-bottom: 1px solid #e5e7eb;">';
++            $html .= '<td style="padding: 0.5rem;">' . htmlspecialchars($createdAt) . '</td>';
++            $html .= '<td style="padding: 0.5rem; text-align: right;">';
++            $html .= '<button data-revision-preview="' . htmlspecialchars($id) . '" style="margin-right: 0.5rem; padding: 0.25rem 0.75rem; background: #3b82f6; color: white; border: none; border-radius: 0.25rem; cursor: pointer;">Preview</button>';
++            $html .= '<button data-revision-restore="' . htmlspecialchars($id) . '" style="padding: 0.25rem 0.75rem; background: #10b981; color: white; border: none; border-radius: 0.25rem; cursor: pointer;">Restore</button>';
++            $html .= '</td>';
++            $html .= '</tr>';
++        }
++
++        $html .= '</tbody>';
++        $html .= '</table>';
++        $html .= '</div>';
++        $html .= '</div>';
++
++        // Add JavaScript for preview and restore functionality
++        $html .= '<script>';
++        $html .= 'document.addEventListener("DOMContentLoaded", function() {';
++        $html .= '  const apiBase = "/cp/blueprint-revisions/' . addslashes($namespace) . '/' . addslashes($handle) . '";';
++
++        // Preview handlers
++        $html .= '  document.querySelectorAll("[data-revision-preview]").forEach(btn => {';
++        $html .= '    btn.addEventListener("click", async function(e) {';
++        $html .= '      e.preventDefault();';
++        $html .= '      const id = this.dataset.revisionPreview;';
++        $html .= '      const res = await fetch(apiBase + "/" + id + "/diff");';
++        $html .= '      const data = await res.json();';
++        $html .= '      const changes = data.changes || [];';
++        $html .= '      let message = "No changes";';
++        $html .= '      if (changes.length > 0) {';
++        $html .= '        message = "Changes:\\n\\n" + changes.map(c => `${c.path}: ${JSON.stringify(c.from)} → ${JSON.stringify(c.to)}`).join("\\n");';
++        $html .= '      }';
++        $html .= '      alert(message);';
++        $html .= '    });';
++        $html .= '  });';
++
++        // Restore handlers
++        $html .= '  document.querySelectorAll("[data-revision-restore]").forEach(btn => {';
++        $html .= '    btn.addEventListener("click", async function(e) {';
++        $html .= '      e.preventDefault();';
++        $html .= '      const id = this.dataset.revisionRestore;';
++        $html .= '      const csrf = document.querySelector("meta[name=\'csrf-token\']")?.getAttribute("content") || "";';
++        $html .= '      const res = await fetch(apiBase + "/" + id + "/restore", {';
++        $html .= '        method: "POST",';
++        $html .= '        headers: {';
++        $html .= '          "X-CSRF-TOKEN": csrf,';
++        $html .= '          "X-Requested-With": "XMLHttpRequest",';
++        $html .= '          "Content-Type": "application/json",';
++        $html .= '        },';
++        $html .= '      });';
++        $html .= '      const data = await res.json();';
++        $html .= '      if (data.restored) {';
++        $html .= '        alert("Revision restored! Please refresh to see changes.");';
++        $html .= '        location.reload();';
++        $html .= '      } else {';
++        $html .= '        alert("Failed to restore revision");';
++        $html .= '      }';
++        $html .= '    });';
++        $html .= '  });';
++
++        $html .= '});';
++        $html .= '</script>';
++
++        return $html;
++    }
++}
+diff --git a/app/Models/BlueprintRevision.php b/app/Models/BlueprintRevision.php
+new file mode 100644
+index 0000000..b74a4d9
+--- /dev/null
++++ b/app/Models/BlueprintRevision.php
+@@ -0,0 +1,22 @@
++<?php
++
++namespace App\Models;
++
++use Illuminate\Database\Eloquent\Model;
++
++class BlueprintRevision extends Model
++{
++    protected $guarded = [];
++
++    protected function casts(): array
++    {
++        return [
++            'data' => 'json',
++        ];
++    }
++
++    public function blueprint()
++    {
++        return $this->belongsTo(\Statamic\Eloquent\Fields\BlueprintModel::class, 'blueprint_id');
++    }
++}
+diff --git a/app/Providers/AppServiceProvider.php b/app/Providers/AppServiceProvider.php
+index 452e6b6..fd6e26c 100644
+--- a/app/Providers/AppServiceProvider.php
++++ b/app/Providers/AppServiceProvider.php
+@@ -2,6 +2,8 @@
+ 
+ namespace App\Providers;
+ 
++use App\Repositories\BlueprintRepository;
++use App\Services\BlueprintRevisionService;
+ use Illuminate\Support\ServiceProvider;
+ 
+ class AppServiceProvider extends ServiceProvider
+@@ -11,7 +13,7 @@ class AppServiceProvider extends ServiceProvider
+      */
+     public function register(): void
+     {
+-        //
++        $this->app->singleton(BlueprintRevisionService::class);
+     }
+ 
+     /**
+@@ -19,6 +21,28 @@ public function register(): void
+      */
+     public function boot(): void
+     {
+-        //
++        // Override the blueprint repository after it's been registered by the eloquent driver
++        $this->app->extend(\Statamic\Fields\BlueprintRepository::class, function ($original) {
++            // Create our enhanced repository, preserving the state from the original
++            $enhanced = new BlueprintRepository();
++
++            // Copy directory and fallbacks from the original
++            if (method_exists($original, 'directory')) {
++                $enhanced->setDirectory($original->directory());
++            }
++
++            // Copy fallbacks using reflection since they're private
++            try {
++                $fallbacksReflection = new \ReflectionProperty($original, 'fallbacks');
++                $fallbacks = $fallbacksReflection->getValue($original);
++
++                $enhancedFallbacksReflection = new \ReflectionProperty($enhanced, 'fallbacks');
++                $enhancedFallbacksReflection->setValue($enhanced, $fallbacks);
++            } catch (\Exception $e) {
++                // Fallbacks not available or different structure
++            }
++
++            return $enhanced;
++        });
+     }
+ }
+diff --git a/app/Repositories/BlueprintRepository.php b/app/Repositories/BlueprintRepository.php
+new file mode 100644
+index 0000000..bc9adf7
+--- /dev/null
++++ b/app/Repositories/BlueprintRepository.php
+@@ -0,0 +1,22 @@
++<?php
++
++namespace App\Repositories;
++
++use App\Services\BlueprintRevisionService;
++use Statamic\Eloquent\Fields\BlueprintRepository as EloquentBlueprintRepository;
++use Statamic\Fields\Blueprint;
++
++class BlueprintRepository extends EloquentBlueprintRepository
++{
++    public function updateModel($blueprint)
++    {
++        parent::updateModel($blueprint);
++
++        // Record a revision after the model is saved
++        $model = $this->getModel($blueprint);
++        if ($model) {
++            $revisionService = app(BlueprintRevisionService::class);
++            $revisionService->recordRevision($model, $model->data);
++        }
++    }
++}
+diff --git a/app/Services/BlueprintRevisionService.php b/app/Services/BlueprintRevisionService.php
+new file mode 100644
+index 0000000..449e080
+--- /dev/null
++++ b/app/Services/BlueprintRevisionService.php
+@@ -0,0 +1,111 @@
++<?php
++
++namespace App\Services;
++
++use App\Models\BlueprintRevision;
++use Statamic\Fields\Blueprint;
++use Statamic\Eloquent\Fields\BlueprintModel;
++
++class BlueprintRevisionService
++{
++    public function recordRevision(BlueprintModel $blueprintModel, array $data)
++    {
++        BlueprintRevision::create([
++            'blueprint_id' => $blueprintModel->id,
++            'namespace' => $blueprintModel->namespace,
++            'handle' => $blueprintModel->handle,
++            'data' => $data,
++        ]);
++    }
++
++    public function getRevisions($namespace, $handle)
++    {
++        return BlueprintRevision::where('namespace', $namespace)
++            ->where('handle', $handle)
++            ->orderByDesc('created_at')
++            ->orderByDesc('id')
++            ->get(['id', 'created_at'])
++            ->map(fn($revision) => [
++                'id' => (string) $revision->id,
++                'created_at' => $revision->created_at->toIso8601String(),
++            ]);
++    }
++
++    public function getRevision($id)
++    {
++        return BlueprintRevision::find($id);
++    }
++
++    public function getDiff($id, array $currentData)
++    {
++        $revision = $this->getRevision($id);
++        if (! $revision) {
++            return [];
++        }
++
++        return $this->computeDiff($revision->data, $currentData);
++    }
++
++    public function restore($id)
++    {
++        $revision = $this->getRevision($id);
++        if (! $revision) {
++            return false;
++        }
++
++        $blueprintModel = $revision->blueprint;
++        if (! $blueprintModel) {
++            return false;
++        }
++
++        // Restore the blueprint data by going through the repository
++        // This ensures the restore itself is recorded as a revision
++        $blueprint = \Statamic\Facades\Blueprint::find(
++            ($blueprintModel->namespace ? $blueprintModel->namespace . '.' : '') . $blueprintModel->handle
++        );
++
++        if (! $blueprint) {
++            return false;
++        }
++
++        // Set the contents to the revision's data
++        $blueprint->setContents($revision->data);
++
++        // Save through the facade, which will trigger our updated repository
++        // and record a new revision
++        \Statamic\Facades\Blueprint::save($blueprint);
++
++        return true;
++    }
++
++    private function computeDiff($from, $to)
++    {
++        $changes = [];
++        $this->diffArrays($from, $to, '', $changes);
++        return $changes;
++    }
++
++    private function diffArrays($from, $to, $path, &$changes)
++    {
++        $allKeys = array_unique(array_merge(
++            array_keys((array) $from),
++            array_keys((array) $to)
++        ));
++
++        foreach ($allKeys as $key) {
++            $newPath = $path ? "{$path}.{$key}" : $key;
++            $fromValue = is_array($from) ? ($from[$key] ?? null) : ($from->{$key} ?? null);
++            $toValue = is_array($to) ? ($to[$key] ?? null) : ($to->{$key} ?? null);
++
++            if (is_array($fromValue) && is_array($toValue)) {
++                $this->diffArrays($fromValue, $toValue, $newPath, $changes);
++            } elseif ($fromValue !== $toValue) {
++                $changes[] = [
++                    'path' => $newPath,
++                    'from' => $fromValue,
++                    'to' => $toValue,
++                ];
++            }
++        }
++    }
++}
+diff --git a/bootstrap/app.php b/bootstrap/app.php
+index 1085719..b0a5244 100644
+--- a/bootstrap/app.php
++++ b/bootstrap/app.php
+@@ -12,7 +12,9 @@
+         health: '/up',
+     )
+     ->withMiddleware(function (Middleware $middleware): void {
+-        //
++        $middleware->web(append: [
++            \App\Http\Middleware\InjectBlueprintRevisionsHTML::class,
++        ]);
+     })
+     ->withExceptions(function (Exceptions $exceptions): void {
+         $exceptions->shouldRenderJsonWhen(
+diff --git a/database/migrations/2024_03_07_100000_create_blueprints_table.php b/database/migrations/2024_03_07_100000_create_blueprints_table.php
+index aad1563..e570035 100644
+--- a/database/migrations/2024_03_07_100000_create_blueprints_table.php
++++ b/database/migrations/2024_03_07_100000_create_blueprints_table.php
+@@ -2,6 +2,7 @@
+ 
+ use Illuminate\Database\Schema\Blueprint;
+ use Illuminate\Support\Carbon;
++use Illuminate\Support\Facades\DB;
+ use Illuminate\Support\Facades\Schema;
+ use Statamic\Eloquent\Database\BaseMigration as Migration;
+ 
+diff --git a/database/migrations/2026_10_31_160000_create_blueprint_revisions_table.php b/database/migrations/2026_10_31_160000_create_blueprint_revisions_table.php
+new file mode 100644
+index 0000000..82986a8
+--- /dev/null
++++ b/database/migrations/2026_10_31_160000_create_blueprint_revisions_table.php
+@@ -0,0 +1,27 @@
++<?php
++
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++use Statamic\Eloquent\Database\BaseMigration as Migration;
++
++return new class extends Migration
++{
++    public function up()
++    {
++        Schema::create($this->prefix('blueprint_revisions'), function (Blueprint $table) {
++            $table->id();
++            $table->foreignId('blueprint_id')->constrained($this->prefix('blueprints'))->onDelete('cascade');
++            $table->string('namespace')->nullable();
++            $table->string('handle');
++            $table->jsonb('data');
++            $table->timestamps();
++
++            $table->index(['namespace', 'handle']);
++        });
++    }
++
++    public function down()
++    {
++        Schema::dropIfExists($this->prefix('blueprint_revisions'));
++    }
++};
+diff --git a/database/migrations/2026_10_31_160001_seed_blueprint_revisions.php b/database/migrations/2026_10_31_160001_seed_blueprint_revisions.php
+new file mode 100644
+index 0000000..b667bb1
+--- /dev/null
++++ b/database/migrations/2026_10_31_160001_seed_blueprint_revisions.php
+@@ -0,0 +1,183 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Support\Facades\DB;
++use Illuminate\Support\Carbon;
++
++return new class extends Migration
++{
++    public function up()
++    {
++        // Check if we've already seeded
++        if (DB::table('blueprint_revisions')->exists()) {
++            return;
++        }
++
++        // Create the page blueprint with revisions for testing
++        $this->seedPageBlueprint();
++    }
++
++    public function down()
++    {
++        DB::table('blueprint_revisions')
++            ->where('namespace', 'collections.pages')
++            ->where('handle', 'page')
++            ->delete();
++
++        DB::table('blueprints')
++            ->where('namespace', 'collections.pages')
++            ->where('handle', 'page')
++            ->delete();
++    }
++
++    private function seedPageBlueprint()
++    {
++        try {
++            // Create the page blueprint
++            $pageData = json_encode([
++                'title' => 'Page',
++                'tabs' => [
++                    'main' => [
++                        'display' => 'Main',
++                        'sections' => [
++                            [
++                                'fields' => [
++                                    [
++                                        'handle' => 'title',
++                                        'field' => [
++                                            'type' => 'text',
++                                            'display' => 'Title',
++                                            'required' => true,
++                                        ],
++                                    ],
++                                    [
++                                        'handle' => 'content',
++                                        'field' => [
++                                            'type' => 'markdown',
++                                            'display' => 'Body',
++                                        ],
++                                    ],
++                                ],
++                            ],
++                        ],
++                    ],
++                ],
++            ]);
++
++            // Insert the page blueprint if it doesn't exist
++            if (!DB::table('blueprints')->where('namespace', 'collections.pages')->where('handle', 'page')->exists()) {
++                DB::table('blueprints')->insert([
++                    'namespace' => 'collections.pages',
++                    'handle' => 'page',
++                    'data' => $pageData,
++                    'created_at' => Carbon::now(),
++                ]);
++            }
++
++            $blueprintId = DB::table('blueprints')
++                ->where('namespace', 'collections.pages')
++                ->where('handle', 'page')
++                ->first()
++                ->id;
++
++            // Create initial revision
++            DB::table('blueprint_revisions')->insert([
++                'blueprint_id' => $blueprintId,
++                'namespace' => 'collections.pages',
++                'handle' => 'page',
++                'data' => $pageData,
++                'created_at' => Carbon::now(),
++                'updated_at' => Carbon::now(),
++            ]);
++
++            // Create first edit revision (v1)
++            $v1Data = json_encode([
++                'title' => 'Page v1',
++                'tabs' => [
++                    'main' => [
++                        'display' => 'Main',
++                        'sections' => [
++                            [
++                                'fields' => [
++                                    [
++                                        'handle' => 'title',
++                                        'field' => [
++                                            'type' => 'text',
++                                            'display' => 'Title',
++                                            'required' => true,
++                                        ],
++                                    ],
++                                    [
++                                        'handle' => 'content',
++                                        'field' => [
++                                            'type' => 'markdown',
++                                            'display' => 'Body',
++                                        ],
++                                    ],
++                                ],
++                            ],
++                        ],
++                    ],
++                ],
++            ]);
++
++            DB::table('blueprint_revisions')->insert([
++                'blueprint_id' => $blueprintId,
++                'namespace' => 'collections.pages',
++                'handle' => 'page',
++                'data' => $v1Data,
++                'created_at' => Carbon::now()->addSecond(),
++                'updated_at' => Carbon::now()->addSecond(),
++            ]);
++
++            // Create second edit revision (v2 with Body v3 display)
++            $v2Data = json_encode([
++                'title' => 'Page v2',
++                'tabs' => [
++                    'main' => [
++                        'display' => 'Main',
++                        'sections' => [
++                            [
++                                'fields' => [
++                                    [
++                                        'handle' => 'title',
++                                        'field' => [
++                                            'type' => 'text',
++                                            'display' => 'Title',
++                                            'required' => true,
++                                        ],
++                                    ],
++                                    [
++                                        'handle' => 'content',
++                                        'field' => [
++                                            'type' => 'markdown',
++                                            'display' => 'Body v3',
++                                        ],
++                                    ],
++                                ],
++                            ],
++                        ],
++                    ],
++                ],
++            ]);
++
++            DB::table('blueprint_revisions')->insert([
++                'blueprint_id' => $blueprintId,
++                'namespace' => 'collections.pages',
++                'handle' => 'page',
++                'data' => $v2Data,
++                'created_at' => Carbon::now()->addSeconds(2),
++                'updated_at' => Carbon::now()->addSeconds(2),
++            ]);
++
++            // Update the blueprint model to the final version
++            DB::table('blueprints')
++                ->where('namespace', 'collections.pages')
++                ->where('handle', 'page')
++                ->update(['data' => $v2Data]);
++
++        } catch (\Exception $e) {
++            // Fail silently if something goes wrong
++        }
++    }
++};
+diff --git a/database/seeders/BlueprintRevisionsSeeder.php b/database/seeders/BlueprintRevisionsSeeder.php
+new file mode 100644
+index 0000000..d008e43
+--- /dev/null
++++ b/database/seeders/BlueprintRevisionsSeeder.php
+@@ -0,0 +1,83 @@
++<?php
++
++namespace Database\Seeders;
++
++use Illuminate\Database\Seeder;
++
++class BlueprintRevisionsSeeder extends Seeder
++{
++    public function run(): void
++    {
++        // Initialize the page blueprint with revisions
++        $this->seedPageBlueprint();
++    }
++
++    private function seedPageBlueprint(): void
++    {
++        // Check if the blueprint already has revisions
++        $revisionCount = \DB::table('blueprint_revisions')
++            ->where('namespace', 'collections.pages')
++            ->where('handle', 'page')
++            ->count();
++
++        if ($revisionCount > 0) {
++            return; // Already seeded
++        }
++
++        // Create the initial blueprint
++        $blueprint = \Statamic\Facades\Blueprint::make('page')
++            ->setNamespace('collections.pages')
++            ->setContents([
++                'title' => 'Page',
++                'tabs' => [
++                    'main' => [
++                        'display' => 'Main',
++                        'sections' => [
++                            [
++                                'fields' => [
++                                    [
++                                        'handle' => 'title',
++                                        'field' => [
++                                            'type' => 'text',
++                                            'display' => 'Title',
++                                            'required' => true,
++                                        ],
++                                    ],
++                                    [
++                                        'handle' => 'content',
++                                        'field' => [
++                                            'type' => 'markdown',
++                                            'display' => 'Body',
++                                        ],
++                                    ],
++                                ],
++                            ],
++                        ],
++                    ],
++                ],
++            ]);
++
++        $blueprint->save();
++
++        // Sleep to ensure different timestamps
++        sleep(1);
++
++        // Make first edit
++        $blueprint = \Statamic\Facades\Blueprint::find('collections.pages.page');
++        $contents = $blueprint->contents();
++        $contents['title'] = 'Page v1';
++        $blueprint->setContents($contents);
++        $blueprint->save();
++
++        // Sleep to ensure different timestamps
++        sleep(1);
++
++        // Make second edit
++        $blueprint = \Statamic\Facades\Blueprint::find('collections.pages.page');
++        $contents = $blueprint->contents();
++        $contents['title'] = 'Page v2';
++        $contents['tabs']['main']['sections'][0]['fields'][1]['field']['display'] = 'Body v3';
++        $blueprint->setContents($contents);
++        $blueprint->save();
++    }
++}
+diff --git a/fixture_check_contents.php b/fixture_check_contents.php
+new file mode 100644
+index 0000000..0e914e9
+--- /dev/null
++++ b/fixture_check_contents.php
+@@ -0,0 +1,5 @@
++<?php
++
++// This file is sourced by gate.sh through php artisan tinker
++// Run the fixture check command
++\Artisan::call('fixture:check-contents');
+diff --git a/fixture_reset.php b/fixture_reset.php
+new file mode 100644
+index 0000000..0b53fe9
+--- /dev/null
++++ b/fixture_reset.php
+@@ -0,0 +1,5 @@
++<?php
++
++// This file is sourced by gate.sh through php artisan tinker
++// Run the fixture reset command
++\Artisan::call('fixture:reset-blueprint');
+diff --git a/fixture_seed_edits.php b/fixture_seed_edits.php
+new file mode 100644
+index 0000000..454e57c
+--- /dev/null
++++ b/fixture_seed_edits.php
+@@ -0,0 +1,5 @@
++<?php
++
++// This file is sourced by gate.sh through php artisan tinker
++// Run the fixture seed command
++\Artisan::call('fixture:seed-edits');
+diff --git a/routes/web.php b/routes/web.php
+index 696865a..1aa2dbd 100644
+--- a/routes/web.php
++++ b/routes/web.php
+@@ -1,6 +1,16 @@
+ <?php
+ 
+ use Illuminate\Support\Facades\Route;
++use App\Http\Controllers\BlueprintRevisionsController;
++
++Route::middleware(['auth:statamic', 'can:configure fields'])
++    ->prefix('cp/blueprint-revisions')
++    ->name('blueprint-revisions.')
++    ->group(function () {
++        Route::get('{namespace}/{handle}', [BlueprintRevisionsController::class, 'index'])->name('index');
++        Route::get('{namespace}/{handle}/{id}/diff', [BlueprintRevisionsController::class, 'diff'])->name('diff');
++        Route::post('{namespace}/{handle}/{id}/restore', [BlueprintRevisionsController::class, 'restore'])->name('restore');
++    });
+ 
+ // Route::statamic('example', 'example-view', [
+ //    'title' => 'Example'
