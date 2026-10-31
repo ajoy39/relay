@@ -55,7 +55,10 @@ MIN=$(( ( $(date +%s) - T0 + 30 ) / 60 ))
 [ -s "$LAB/trials/$TRIAL.transcript.jsonl" ] || fail "no transcript (run-trial rc=$TRC)"
 
 SPEC="$(bash "$EXP/scripts/verify_spec.sh" >/dev/null 2>&1 && echo intact || echo TAMPERED)"
-VEND="$(bash "$EXP/scripts/verify_vendor.sh" "$TRIAL" >/dev/null 2>&1; case $? in 0) echo intact ;; 1) echo CHANGED ;; *) echo BROKEN ;; esac)"
+# Not a case inside $( ): bash 3.2 (macOS /bin/bash) can't parse `case x in 0)`
+# inside a command substitution, and cal01's row got script text here.
+bash "$EXP/scripts/verify_vendor.sh" "$TRIAL" >/dev/null 2>&1; VRC=$?
+case "$VRC" in 0) VEND=intact ;; 1) VEND=CHANGED ;; *) VEND=BROKEN ;; esac
 
 score() { # -> one of n/6 or NORESULT
   sudo -n -u labgate "$LAB/bin/run-gate" "$LAB/trials/$TRIAL" "$PORT" > "$RES/trials/$TRIAL.gate-$1.log" 2>&1

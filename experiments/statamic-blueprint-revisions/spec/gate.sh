@@ -32,8 +32,17 @@ php artisan optimize:clear >/dev/null 2>&1
 # reset fixture to a known state, then make two edits
 php artisan tinker --execute="require '$S/reset_fixture.php';" >/dev/null 2>&1
 sleep 2   # keep the reset save in its own second so revision ordering is unambiguous
-SEED=$(php artisan tinker --execute="require '$S/seed_edits.php';" 2>&1 | grep SEEDED)
-[ -z "$SEED" ] && { echo "GATE: BROKEN — fixture seed failed"; exit 3; }
+SEED_OUT=$(php artisan tinker --execute="require '$S/seed_edits.php';" 2>&1)
+SEED=$(printf '%s\n' "$SEED_OUT" | grep SEEDED)
+if [ -z "$SEED" ]; then
+  # Say why (run 08, cal01): the bare app and the stub seed fine, so a failure
+  # here is usually the trial's own code throwing on a blueprint save (run 07's
+  # BROKE-APP, t066). Only the last lines, ANSI stripped: the fixture involves
+  # no credentials. The verdict is unchanged; classification is the scorer's.
+  echo "GATE: BROKEN — fixture seed failed"
+  printf '%s\n' "$SEED_OUT" | sed $'s/\x1b\\[[0-9;]*m//g' | grep -v '^[[:space:]]*$' | tail -6 | sed 's/^/  seed: /'
+  exit 3
+fi
 
 # multiple workers: the single-process built-in server deadlocks when a test
 # issues a request while the page it just opened still has one in flight.
