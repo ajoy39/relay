@@ -15,6 +15,7 @@
 # limit, or 3 when refused.
 set -u
 umask 002
+cd / || exit 3   # sudo keeps the caller's cwd, which this user may not be able to read
 
 ROOT=/Users/Shared/lab
 MODELS="claude-haiku-4-5 claude-haiku-5-5"
