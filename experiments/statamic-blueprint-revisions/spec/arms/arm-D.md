@@ -3,9 +3,9 @@
 **Your app directory**: `{{APP_DIR}}` — work only in there.
 **Scope (writable paths)**: `app/**`, `routes/**`, `database/migrations/**`,
 `resources/**`, `config/**`. Do NOT modify `vendor/**` (it is mounted
-read-only) and do not touch anything under `/home/user/lab/spec/**` — that is
+read-only) and do not touch anything under `{{SPEC_DIR}}/**` — that is
 the acceptance harness.
-**Acceptance command**: `bash /home/user/lab/spec/gate.sh {{APP_DIR}} {{PORT}}`
+**Acceptance command**: `{{GATE_CMD}} {{APP_DIR}} {{PORT}}`
 — it must print `GATE: GREEN`. It also prints `SCORE: n/6`, so you can see
 partial progress. Run it as often as you like; it resets its own fixtures.
 
@@ -68,7 +68,7 @@ can drive the page; everything else about the presentation is your choice.
 - A blueprint save through Statamic's normal path records a revision. Two edits
   produce two revisions, newest first.
 - Restoring changes the blueprint's stored contents and is itself revertible.
-- No changes to `vendor/**`. No edits under `/home/user/lab/spec/**`.
+- No changes to `vendor/**`. No edits under `{{SPEC_DIR}}/**`.
 - Existing app tests must still pass.
 
 ## Non-goals
@@ -85,7 +85,7 @@ requirement and the conflict — rather than working around it silently.
 
 ## The acceptance tests
 
-The gate is six Playwright tests at `/home/user/lab/spec/gate.spec.js`, and the
-script that runs them is `/home/user/lab/spec/gate.sh`. Both are readable —
+The gate is six Playwright tests at `{{SPEC_DIR}}/gate.spec.js`, and the
+script that runs them is `{{SPEC_DIR}}/gate.sh`. Both are readable —
 read them, they are the exact definition of done. They are also read-only to
 you: editing them is a failed ticket, not a passed one.
