@@ -38,7 +38,7 @@ specs = [{"title": f"t{i}", "tests": ([] if s == "none" else [{"status": s}])} f
 json.dump({"suites": [{"specs": specs}]}, open(sys.argv[1], "w"))
 PY
 }
-gate() { out="$(env PATH="$S:$PATH" LAB_ROOT="$L" "$B" "$E/spec/gate.sh" "$L/app" 59917 2>&1)"; rc=$?; }
+gate() { out="$(env PATH="$S:$PATH" LAB_ROOT="$L" GATE_AUDIT_LOG="$WORK/audit.log" "$B" "$E/spec/gate.sh" "$L/app" 59917 2>&1)"; rc=$?; }
 R="$WORK/r.json"; x=expected; u=unexpected
 
 echo "== verdicts the gate measured"
@@ -69,5 +69,7 @@ result "$R" $x $x $x $x $x none; STUB_RESULT="$R" gate
 chk "a spec with no tests -> 3" "$rc" "3"
 result "$R" $x $x $x $x $x $x; STUB_RESULT="$R" STUB_UP=1 gate
 chk "server never answered -> 3, even with a stale green report" "$rc" "3"; has "  ...says why" "$out" "server did not answer"
+
+chk "every run went to GATE_AUDIT_LOG, not /tmp" "$(wc -l < "$WORK/audit.log" | tr -d " ")" "12"
 
 finish

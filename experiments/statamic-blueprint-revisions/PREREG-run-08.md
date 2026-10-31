@@ -156,4 +156,35 @@ All on relay branch `claude/run-08-instrument`:
 
 ## Amendments
 
-*(none yet — the file isn't frozen)*
+### A1 — 2026-10-31: the gate runs as `labgate`, not as the owner (before any trial)
+
+**Why.** *Treatment* says arms B–D reach a wrapper that "runs the gate as
+`ajoy`". But the gate **executes the trial's own app**: `artisan migrate`,
+service providers, the dev server. A trial could plant code that, run by the
+gate as `ajoy`, reads the stub implementation, `docs/` or neocortex, or
+writes into a sibling trial. Scoring has the same exposure (the architect runs
+the gate, and `git` in a trial tree can run commands through repo config such
+as `core.fsmonitor`). Left in place, the separate trial user would have
+isolated nothing. Found while writing `run-gate`, before any trial ran.
+Approved by Alec on 2026-10-31.
+
+**Change.**
+- A third macOS user, **`labgate`** (not in `staff`, can't read `/Users/ajoy`),
+  owns the gate's area: spec, `pristine.sqlite`, Playwright and its browser,
+  the schedule and the gate's audit log. **The stub implementation stays in
+  the owner's private area, which `labgate` can't read.**
+- **Every operation that executes or `git`-inspects a trial's tree runs as
+  `labgate`:** gate runs requested by trials (arms B–D), the architect's
+  scoring runs, and patch export.
+- **Gate runs are serialized** (one at a time), so a trial's code running as
+  `labgate` can't interfere with a gate scoring a sibling in parallel.
+- The wrapper still **refuses arm-A trials before running anything**, so arm
+  A's blindness is unchanged.
+
+**Residual exposure, accepted and reported.** Trial code running as `labgate`
+during a gate run could read the gate's own tests and the gate script. Arms B
+and D already have the acceptance command, and arm D the tests themselves, so
+this is a possible B/C confound. It's the same exposure run 07 had (its gate
+was world-readable to every trial). `labgate` can also reach sibling trial
+trees between gate runs: run 07's pairwise patch-similarity check is kept for
+every trial.

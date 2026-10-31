@@ -128,11 +128,100 @@ sudo -l -U labtrial                           # only the run-gate rule
 Paste the output to Claude. These checks are also the first entries of run
 08's instrument check (`PREREG-run-08.md`, phase 0).
 
+# Part 2: the gate user, `labgate` (Amendment A1, 2026-10-31)
+
+The gate runs the trial's own app, so it must not run as the owner (see
+`PREREG-run-08.md`, *Amendment A1*). A third user, `labgate`, owns the gate's
+area and does everything that executes or `git`-inspects a trial. It can't
+read `/Users/ajoy` or the owner's private area (which keeps the stub
+implementation), and `labtrial` can't read the gate's area.
+
+| Path | Owner : group | Mode | Who can read it |
+|---|---|---|---|
+| `$LAB_ROOT/gate/` (spec, pristine.sqlite, Playwright, browsers, schedule, log) | ajoy : labgate | 2770 | ajoy, labgate |
+| `$LAB_ROOT/private/` (reference: the stub) | ajoy : staff | 0700 | **ajoy only** |
+| `$LAB_ROOT/spec`, `harness` | symlinks into `gate/` | | |
+
+## G1. The user
+
+```sh
+sudo dseditgroup -o create -r "Lab gate" labgate
+sudo sysadminctl -addUser labgate -fullName "Lab gate" -password - -home /Users/labgate
+sudo createhomedir -c -u labgate
+sudo dscl . -create /Users/labgate PrimaryGroupID "$(dscl . -read /Groups/labgate PrimaryGroupID | awk '{print $2}')"
+sudo dseditgroup -o edit -d labgate -t user staff 2>/dev/null || true
+sudo dseditgroup -o edit -a labgate -t user labshare      # reads the app, writes in trials
+sudo dscl . -create /Users/labgate IsHidden 1
+```
+
+## G2. The gate's area
+
+Claude has already built `private/spec` and `private/harness` (2026-10-31).
+This moves them into a `gate/` folder the gate user can use:
+
+```sh
+cd /Users/Shared/lab
+mkdir gate && mv private/spec gate/spec && mv private/harness gate/harness
+mkdir -p gate/log gate/browsers
+rm spec harness && ln -s gate/spec spec && ln -s gate/harness harness
+sudo chgrp -R labgate gate && sudo chmod -R g+rwX gate && sudo chmod 2770 gate gate/log
+```
+
+## G3. Git in trial folders
+
+Trials are cloned by the owner and then worked in by `labtrial`, so git would
+refuse them as "dubious ownership". Trust the trials folder, and nothing
+else, for the trial user:
+
+```sh
+sudo -u labtrial -H git config --global --add safe.directory '/Users/Shared/lab/trials/*'
+```
+
+## G4. The wrappers and the `sudo` rules
+
+Install the three wrappers, root-owned, from this repo:
+
+```sh
+sudo install -o root -g wheel -m 0755 \
+  ~/Projects/Suprvsr/relay/experiments/statamic-blueprint-revisions/lab/bin/{run-trial,run-gate,lab-git} \
+  /Users/Shared/lab/bin/
+```
+
+Then **replace** `/etc/sudoers.d/relay-lab` (`sudo visudo -f
+/etc/sudoers.d/relay-lab`). The old `labtrial → (ajoy)` rule must go: the
+gate no longer runs as the owner.
+
+```
+# Run 08 (relay PREREG-run-08.md + Amendment A1). No wildcards in command paths.
+# The owner starts trials as labtrial, only via the runner.
+ajoy     ALL=(labtrial) NOPASSWD: /Users/Shared/lab/bin/run-trial
+# The owner scores and exports patches as labgate, only via these two.
+ajoy     ALL=(labgate)  NOPASSWD: /Users/Shared/lab/bin/run-gate, /Users/Shared/lab/bin/lab-git
+# A trial reaches the gate as labgate, only via the wrapper (refuses arm A).
+labtrial ALL=(labgate)  NOPASSWD: /Users/Shared/lab/bin/run-gate
+```
+
+## G5. Checks (all must pass)
+
+```sh
+id labgate                                           # no "staff"
+sudo -u labgate ls /Users/ajoy                       # Permission denied
+sudo -u labgate ls /Users/Shared/lab/private         # Permission denied (the stub)
+sudo -u labgate ls /Users/Shared/lab/gate/spec       # works
+sudo -u labtrial ls /Users/Shared/lab/gate           # Permission denied
+sudo -u labtrial cat /Users/Shared/lab/spec/gate.sh  # Permission denied (through the link)
+ls -l /Users/Shared/lab/bin                          # three files, root wheel, -rwxr-xr-x
+sudo -l -U labtrial                                  # only (labgate) run-gate
+sudo -n -u labgate /Users/Shared/lab/bin/run-gate /tmp 1234; echo "rc=$?"   # refused, rc=3
+```
+
+Paste the output to Claude.
+
 ## Undo
 
 ```sh
 sudo rm -f /etc/sudoers.d/relay-lab
-sudo sysadminctl -deleteUser labtrial
-sudo dseditgroup -o delete labtrial; sudo dseditgroup -o delete labshare
+sudo sysadminctl -deleteUser labtrial; sudo sysadminctl -deleteUser labgate
+sudo dseditgroup -o delete labtrial; sudo dseditgroup -o delete labgate; sudo dseditgroup -o delete labshare
 sudo rm -rf /Users/Shared/lab
 ```

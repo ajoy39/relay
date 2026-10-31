@@ -69,6 +69,15 @@ mkdir -p "$DIR/storage/framework/cache/data" \
 
 cp "$LAB_ROOT/spec/pristine.sqlite" "$DIR/database/database.sqlite"
 
+# Run 08: a trial is written by one user (labtrial) and gated by another
+# (labgate), both through the trial dir's group. Make everything except the
+# sealed vendor/ group-readable and -writable; directories get setgid so new
+# files keep the group on Linux too (macOS does that already). Before the
+# baseline stamp, and vendor/ untouched, so verify_vendor's ctime check is
+# unaffected.
+find "$DIR" -path "$DIR/vendor" -prune -o -exec chmod g+rwX {} +
+find "$DIR" -path "$DIR/vendor" -prune -o -type d -exec chmod g+s {} +
+
 # Stamp the baseline LAST, a second after the chmod, so nothing set up here can
 # look newer than it. Its mtime is the time verify_vendor.sh compares ctimes
 # against; its content is the mode, so a trial is always judged by the rules it

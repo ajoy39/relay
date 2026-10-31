@@ -12,7 +12,9 @@ S="${LAB_ROOT:-}/spec"
 # up from a trial's worktree (../../spec/gate.sh), and in run 07 trials found it and ran it. This file
 # is the only thing that distinguishes a blind arm from a confounded one. Without
 # it the confound is invisible and the arm's result reads as a capability finding.
-echo "$(date +%s) $APP $$" >> /tmp/gate-audit.log
+# GATE_AUDIT_LOG: run-gate points it into the gate's own area (run 08), where
+# the gate's user can write and trials can't read.
+echo "$(date +%s) $APP $$" >> "${GATE_AUDIT_LOG:-/tmp/gate-audit.log}"
 
 # The lab lives under LAB_ROOT (README: "Rebuilding the lab"). Unset is BROKEN,
 # exit 3 — not RED, exit 1. A missing setting must never be able to score a trial.
@@ -48,6 +50,11 @@ for i in $(seq 1 20); do sleep 1; curl -sS -o /dev/null -m 5 "http://127.0.0.1:$
 # Without a server every assertion fails, which used to read as a clean 0/6.
 [ "$UP" = 1 ] || { stop_server; echo "SCORE: NORESULT"; echo "GATE: NORESULT — server did not answer on port $PORT"; exit 3; }
 
+# gate.spec.js requires @playwright/test, and Node resolves that by walking up
+# from the spec's own directory. harness/ sits beside spec/, not above it, so
+# without this the spec finds nothing and every run is NORESULT ("No tests
+# found"; run 08 phase 0, 2026-10-31).
+export NODE_PATH="$LAB_ROOT/harness/node_modules${NODE_PATH:+:$NODE_PATH}"
 rm -f "/tmp/gate-storage-state-$PORT.json"
 RESULT="/tmp/gate-result-$PORT.json"; rm -f "$RESULT"
 BASE_URL="http://127.0.0.1:$PORT" GATE_STATE="/tmp/gate-storage-state-$PORT.json" \
