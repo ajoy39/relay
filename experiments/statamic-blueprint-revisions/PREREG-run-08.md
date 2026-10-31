@@ -188,3 +188,26 @@ this is a possible B/C confound. It's the same exposure run 07 had (its gate
 was world-readable to every trial). `labgate` can also reach sibling trial
 trees between gate runs: run 07's pairwise patch-similarity check is kept for
 every trial.
+
+### A2 — 2026-10-31: arm D reads the tests from a copy (before any trial)
+
+**Why.** Arm D's prompt (run 07's text) says the gate's `gate.spec.js` and
+`gate.sh` "are readable — read them, they are the exact definition of done."
+Under A1 the gate's area is closed to `labtrial`, so arm D would quietly have
+become a different treatment. Found while rendering the first calibration
+trial, before any trial ran.
+
+**Change.** Arm-D trials get `SPEC_DIR=/Users/Shared/lab/spec-readable`: a
+folder `labtrial` can read but not write, holding **byte-identical copies of
+exactly those two files**, checked against the gate's own spec before every
+arm-D trial. Nothing else from the gate's area is in it: no pristine
+database, harness or schedule. Arms A–C keep `SPEC_DIR` pointing at the
+gate's real, unreadable folder, as their text only says not to touch it. The
+acceptance command for B–D is still the `run-gate` wrapper.
+
+**Known difference from run 07.** An arm-D trial that runs its readable
+`gate.sh` copy directly (instead of the acceptance command) gets BROKEN,
+because the copy can't reach the pristine database or Playwright. In run 07,
+that worked: it was how arm A's trials found a checker. Arm D has the real
+command, so this should rarely matter. Direct runs are visible in each trial's
+transcript, and are counted.
