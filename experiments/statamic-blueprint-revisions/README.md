@@ -49,7 +49,7 @@ The gate was verified in both directions before any trial ran:
 - against the untouched app: `SCORE: 0/6`, `GATE: RED`;
 - against `reference/stub-implementation.patch`, a minimal correct
   implementation: `SCORE: 6/6`, `GATE: GREEN`, three times running;
-- inside an isolated trial worktree, both of the above again;
+- inside an isolated trial checkout, both of the above again;
 - two trials gated concurrently on different ports, one stubbed and one bare,
   returning 6/6 and 0/6 simultaneously.
 
@@ -86,8 +86,9 @@ the gate reported a result it had not measured.
 
 ## Isolation
 
-`scripts/new_trial.sh <name>` gives each trial a git worktree of the app, its
-own SQLite database, its own port, and its own **unwritable** `vendor/`:
+`scripts/new_trial.sh <name>` gives each trial its own git clone of the app
+(sharing the master's objects, never its refs, stash or a remote), its own
+SQLite database, its own port, and its own **unwritable** `vendor/`:
 
 - **Linux:** a read-only bind mount of the master's `vendor/`. Cannot be
   written at all, even by root.
@@ -112,7 +113,7 @@ pass:
     delete and rename, and an unprivileged process cannot set it backwards — so
     undoing the seal, or editing a file and backdating it with `touch -r`, is
     still caught. Reading files is not.
-  - `composer.json` and `composer.lock` against the trial worktree's `HEAD`.
+  - `composer.json` and `composer.lock` against the trial checkout's `HEAD`.
     This is not redundant: a `composer require` against a sealed vendor fails at
     `mkdir`, but Composer has already rewritten both files and does **not**
     revert them (measured, Composer 2.8.12). `vendor/` is untouched, so a
@@ -156,7 +157,7 @@ The layout it expects:
 | `$LAB_ROOT/spec` | a **copy** of `spec/` from this repo, plus `pristine.sqlite` | copy, then snapshot the DB as above |
 | `$LAB_ROOT/reference/spec.sha256` | checksums of `$LAB_ROOT/spec`, for `verify_spec.sh` | `cd $LAB_ROOT/spec && sha256sum * arms/* > ../reference/spec.sha256` |
 | `$LAB_ROOT/harness` | `node_modules` with `@playwright/test` | `npm i --prefix $LAB_ROOT/harness @playwright/test` |
-| `$LAB_ROOT/trials/` | one worktree per trial, created by `new_trial.sh` | generated |
+| `$LAB_ROOT/trials/` | one clone per trial, created by `new_trial.sh` | generated |
 | `$LAB_ROOT/trials/<name>.vendor-baseline` | the time `verify_vendor.sh` compares against, and the trial's mode (`sealed`/`writable`) | stamped by `new_trial.sh` |
 
 Set `PW_CHROMIUM_PATH` only to use a preinstalled Chromium; otherwise run

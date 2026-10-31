@@ -26,7 +26,14 @@ esac
 
 [ -e "$DIR" ] && { echo "trial $NAME already exists" >&2; exit 1; }
 
-git -C "$APP" worktree add --detach --quiet "$DIR" main
+# Its own clone, not a worktree: refs/stash lives in the COMMON git dir, so
+# worktrees of one repo share a stash list, and in run 07 trials s045/s046 saw
+# other trials' stashed work. --shared borrows the master's objects (cheap; the
+# app repo excludes vendor/) while refs, stash included, stay the trial's own.
+# No remote: a trial must not be able to push into the master app.
+git clone --quiet --shared --branch main "$APP" "$DIR"
+git -C "$DIR" remote remove origin
+git -C "$DIR" checkout --quiet --detach
 
 # vendor/ must be (a) the trial's OWN directory, never a symlink — composer
 # resolves its base directory from the realpath of vendor/composer, so a

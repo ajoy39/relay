@@ -22,6 +22,16 @@ vv t1; chk "fresh trial -> intact (0)" "$?" "0"
 cat $(find "$D/vendor" -type f) >/dev/null
 vv t1; chk "reading every file -> still intact (no false positive)" "$?" "0"
 
+echo "== git state is the trial's own (run 07: shared refs/stash)"
+"$B" "$S/new_trial.sh" g1 >/dev/null 2>&1; "$B" "$S/new_trial.sh" g2 >/dev/null 2>&1
+echo work > "$T/g1/file.txt"; git -C "$T/g1" add file.txt; git -C "$T/g1" stash -q
+chk "a stash in one trial..." "$(git -C "$T/g1" stash list | wc -l | tr -d ' ')" "1"
+chk "  ...is invisible to a sibling" "$(git -C "$T/g2" stash list | wc -l | tr -d ' ')" "0"
+chk "  ...and to the master app" "$(git -C "$A" stash list | wc -l | tr -d ' ')" "0"
+chk "a trial has no remote to push into" "$(git -C "$T/g1" remote | wc -l | tr -d ' ')" "0"
+chk "the master gains no worktrees" "$(git -C "$A" worktree list | wc -l | tr -d ' ')" "1"
+for n in g1 g2; do "$B" "$S/rm_trial.sh" $n >/dev/null 2>&1 || echo "  rm_trial $n failed"; done
+
 echo "== tampering is caught"
 for n in t2 t3 t4 t5 t6; do "$B" "$S/new_trial.sh" $n >/dev/null 2>&1; done
 chmod u+w "$T/t2/vendor/autoload.php"; echo evil >> "$T/t2/vendor/autoload.php"
