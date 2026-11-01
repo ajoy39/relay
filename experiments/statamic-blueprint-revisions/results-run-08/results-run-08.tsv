@@ -32,3 +32,4 @@ p16	pilot	D	claude-haiku-5-5	0	6	6/6	GREEN	6/6,6/6	intact	intact	3	0	1
 p17	pilot	D	claude-haiku-5-5	0	7	NORESULT	NORESULT	NORESULT,NORESULT	intact	intact	2	1	1	needs a -rerun
 p18	pilot	B	claude-haiku-5-5	0	11	6/6	GREEN	6/6,6/6	intact	intact	8	0	0	
 p19	pilot	A	claude-haiku-5-5	0	10	NORESULT	NORESULT	NORESULT,NORESULT	intact	intact	0	0	0	needs a -rerun
+p20	pilot	C	claude-haiku-5-5	0	3	6/6	GREEN	6/6,6/6	intact	intact	2	0	0	
