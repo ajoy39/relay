@@ -13,10 +13,11 @@ mkdir -p "$L/trials" "$G/spec" "$G/log"
 cat > "$G/spec/gate.sh" <<'EOF'
 echo "GATE-RAN app=$1 port=$2 lab=$LAB_ROOT audit=$GATE_AUDIT_LOG pw=$PLAYWRIGHT_BROWSERS_PATH" >> "$LAB_ROOT/gate-ran.log"
 echo "$1" > "$LAB_ROOT/gate-app-path"; touch "$1/written-by-gate"; [ -e "$1/trial-marker" ] && touch "$LAB_ROOT/copy-had-trial-content"
+[ -e "$1/.hidden" ] && [ -e "$1/storage/framework/f" ] && [ ! -e "$1/storage/inertia-devtools" ] && touch "$LAB_ROOT/copy-shape-ok"
 exit "${STUB_RC:-0}"
 EOF
-printf 'tA\tA\t59001\tclaude-haiku-5-5\ntB\tB\t59002\tclaude-haiku-5-5\n' > "$G/schedule.tsv"
-for t in tA tB tX; do mkdir -p "$L/trials/$t"; echo x > "$L/trials/$t/trial-marker"; done
+printf 'tA\tA\t59001\tclaude-haiku-5-5\ntB\tB\t59002\tclaude-haiku-5-5\ntD\tD\t59004\tclaude-haiku-5-5\n' > "$G/schedule.tsv"
+for t in tA tB tD tX; do mkdir -p "$L/trials/$t"; echo x > "$L/trials/$t/trial-marker"; done
 mkdir -p "$WORK/elsewhere/tB"
 
 rg() { # caller args... -> out, rc
@@ -51,6 +52,17 @@ chk "  ...nothing the gate writes lands in the trial" "$( [ -e "$L/trials/tB/wri
 chk "  ...and the copy is removed afterwards" "$(ls -A "$G/work" 2>/dev/null | wc -l | tr -d ' ')" "0"
 has "  ...with the audit log in the gate area" "$(cat "$L/gate-ran.log")" "audit=$G/log/gate-audit.log"
 has "  ...and Playwright's browsers in the gate area" "$(cat "$L/gate-ran.log")" "pw=$G/browsers"
+# Amendment A5: an unreadable storage/inertia-devtools (0700, owned by the trial
+# user; mode 000 stands in for it here) is skipped, and nothing else is.
+mkdir -p "$L/trials/tB/storage/framework" "$L/trials/tB/storage/inertia-devtools" "$L/trials/tD/storage/other"
+echo f > "$L/trials/tB/storage/framework/f"; echo h > "$L/trials/tB/.hidden"
+chmod 000 "$L/trials/tB/storage/inertia-devtools" "$L/trials/tD/storage/other"
+rg labtrial "$L/trials/tB" 59002; chk "an unreadable storage/inertia-devtools -> still runs (A5)" "$rc" "0"
+chk "  ...the copy has dotfiles and the rest of storage/, without inertia-devtools" "$( [ -e "$L/copy-shape-ok" ] && echo yes || echo no)" "yes"
+rg labtrial "$L/trials/tD" 59004; chk "any other unreadable path -> refused, as before" "$rc" "3"
+has "  ...as a failed copy" "$out" "could not copy trial tD"
+chk "  ...and the partial copy is removed" "$(ls -A "$G/work" 2>/dev/null | wc -l | tr -d ' ')" "0"
+chmod 755 "$L/trials/tB/storage/inertia-devtools" "$L/trials/tD/storage/other"
 STUB_RC=1 rg owner "$L/trials/tA" 59001; chk "arm A, asked by the owner (scoring) -> runs, RED passed through" "$rc" "1"
 chk "the lock is released after a run" "$( [ -e "$G/log/gate.lock" ] && echo held || echo free)" "free"
 mkdir "$G/log/gate.lock"; touch -t 202001010000 "$G/log/gate.lock"

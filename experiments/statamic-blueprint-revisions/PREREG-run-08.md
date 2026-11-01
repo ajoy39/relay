@@ -285,3 +285,39 @@ server; that's out of scope for run 08.
 - `cal10` never ran a trial (its pre-check failed), so it runs as scheduled.
 
 Approved by Alec on 2026-10-31 (option A).
+
+### A5 — 2026-11-01: the gate's copy skips Inertia DevTools' request log (after p17, p19)
+
+**Why.** Two pilot trials, `p17` (arm D) and `p19` (arm A), couldn't be
+measured: both scoring runs stopped at "could not copy trial for gating". The
+app ships Inertia's DevTools, which is on by default in the `local`
+environment and creates `storage/inertia-devtools` at a fixed `0700` the first
+time the app serves a page (`vendor/inertiajs/inertia-laravel/src/DevTools/EntriesRepository.php:130`).
+Both trials served their own app as `labtrial`, so the folder belonged to
+`labtrial`, `labgate` couldn't read it, and A3's copy failed. `p17`'s first
+own gate runs copied fine, and the copies began failing after it served pages
+itself. That's an instrument failure in the same class as A3's, not the
+trial's fault. The gate reported it as NORESULT, never as a score.
+
+**Change.** `run-gate` copies the trial entry by entry and skips
+`storage/inertia-devtools`, a runtime request log that plays no part in
+scoring. The gate's own run recreates it in the copy. Nothing else is
+skipped: any other unreadable path still refuses, as before. Tested in
+`tests/test_wrappers.sh`.
+
+**Rejected.** Turning DevTools off in the master app (it changes the trials'
+own environment mid-pilot), and an inherited group-read ACL on `trials/` (a
+larger change to the permission model).
+
+**Also checked.** The trial user's Claude has auto-memory on, stored per
+project path, so per trial. No transcript from calibration or the pilot reads
+another trial's memory folder (`cal04` read only its own saved tool output).
+Every scored result stands. Auto-memory stays as it is for the pilot reruns,
+so they run exactly as the 22 scored trials did.
+
+**Effect on data.** No trial has been scored under the changed instrument.
+`p17` and `p19` are NORESULT and are re-run as `p17-rerun` (arm D) and
+`p19-rerun` (arm A) on ports 58525 and 58526, in that order, scheduled before
+either result exists, as *Measurement* requires. Before they run, the stub
+must score 6/6 GREEN and a bare app 0/6 RED on the installed gate. Approved by
+Alec on 2026-11-01 (option A).

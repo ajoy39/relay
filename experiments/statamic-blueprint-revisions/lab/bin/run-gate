@@ -71,8 +71,35 @@ WORK="$GATE/work/$TRIAL.$$"
 cleanup() { [ -d "$WORK" ] && { chmod -R u+w "$WORK" 2>/dev/null; rm -rf "$WORK"; }; rmdir "$LOCK" 2>/dev/null; }
 trap cleanup EXIT
 mkdir -p "$GATE/work" || refuse "cannot create the gate's work area"
-if [ "$(uname -s)" = Darwin ]; then cp -cR "$APP" "$WORK"; else cp -R --reflink=auto "$APP" "$WORK"; fi \
-  || refuse "could not copy trial $TRIAL for gating"
+# Amendment A5: the copy skips runtime-only paths that the gate never needs
+# and the trial user can leave unreadable. Inertia's DevTools (on by default in
+# the local environment) creates storage/inertia-devtools at 0700 the first
+# time the app serves a page (inertia-laravel src/DevTools/EntriesRepository.php),
+# so a trial that ran its own server left a folder this user can't read, and
+# the whole copy failed (p17, p19). The gate's own run recreates it in the
+# copy. Only the paths listed here are skipped; anything else unreadable still
+# refuses, as before.
+SKIP="storage/inertia-devtools"
+clone() { if [ "$(uname -s)" = Darwin ]; then cp -cR "$1" "$2"; else cp -R --reflink=auto "$1" "$2"; fi; }
+copy_tree() { # src dst prefix: clone each entry whole, descending only toward a skipped path
+  local src="$1" dst="$2" pre="$3" e n rel s down
+  mkdir "$dst" || return 1
+  for e in "$src"/*; do
+    n="${e##*/}"; rel="$pre$n"; down=no
+    for s in $SKIP; do
+      [ "$s" = "$rel" ] && continue 2
+      case "$s" in "$rel"/*) down=yes ;; esac
+    done
+    if [ "$down" = yes ] && [ -d "$e" ] && [ ! -L "$e" ]; then
+      copy_tree "$e" "$dst/$n" "$rel/" || return 1
+    else
+      clone "$e" "$dst/$n" || return 1
+    fi
+  done
+}
+shopt -s dotglob nullglob
+copy_tree "$APP" "$WORK" "" || refuse "could not copy trial $TRIAL for gating"
+shopt -u dotglob nullglob
 
 audit "RUN trial=$TRIAL arm=$ARM port=$PORT copy=$WORK"
 bash "$GATE/spec/gate.sh" "$WORK" "$PORT"
