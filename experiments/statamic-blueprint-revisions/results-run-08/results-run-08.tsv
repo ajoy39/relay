@@ -13,3 +13,4 @@ cal09-rerun	calibration	D	claude-haiku-4-5	0	17	0/6	RED	0/6	intact	intact	18	1	2
 cal10	calibration	D	claude-haiku-4-5	0	13	0/6	RED	0/6	intact	intact	6	4	5	
 cal11	calibration	D	claude-haiku-4-5	0	15	6/6	GREEN	6/6,6/6	intact	intact	14	2	2	
 cal12	calibration	D	claude-haiku-4-5	0	13	0/6	RED	0/6	intact	intact	14	0	2	
+p01	pilot	D	claude-haiku-5-5	0	9	6/6	GREEN	6/6,6/6	intact	intact	5	1	1	
