@@ -1,0 +1,441 @@
+diff --git a/app/Http/Controllers/BlueprintRevisionController.php b/app/Http/Controllers/BlueprintRevisionController.php
+new file mode 100644
+index 0000000..24077a3
+--- /dev/null
++++ b/app/Http/Controllers/BlueprintRevisionController.php
+@@ -0,0 +1,125 @@
++<?php
++
++namespace App\Http\Controllers;
++
++use App\Models\BlueprintRevision;
++use Illuminate\Http\JsonResponse;
++use Statamic\Eloquent\Fields\BlueprintModel;
++
++class BlueprintRevisionController extends Controller
++{
++    public function index(string $namespace, string $handle): JsonResponse
++    {
++        $revisions = BlueprintRevision::query()
++            ->where('namespace', $namespace)
++            ->where('handle', $handle)
++            ->orderByDesc('id')
++            ->get()
++            ->map(fn (BlueprintRevision $revision) => [
++                'id' => $revision->id,
++                'created_at' => $revision->created_at->toIso8601String(),
++            ]);
++
++        return response()->json(['revisions' => $revisions]);
++    }
++
++    public function diff(string $namespace, string $handle, string $id): JsonResponse
++    {
++        $revision = $this->findRevision($namespace, $handle, $id);
++
++        $current = $this->flatten($this->withoutOrder($this->currentData($namespace, $handle)));
++        $restored = $this->flatten($this->withoutOrder($revision->data));
++
++        $changes = [];
++
++        foreach (array_unique([...array_keys($current), ...array_keys($restored)]) as $path) {
++            $from = $current[$path] ?? null;
++            $to = $restored[$path] ?? null;
++
++            $presenceChanged = array_key_exists($path, $current) !== array_key_exists($path, $restored);
++
++            if ($presenceChanged || $from !== $to) {
++                $changes[] = [
++                    'path' => (string) $path,
++                    'from' => $from,
++                    'to' => $to,
++                ];
++            }
++        }
++
++        return response()->json(['changes' => $changes]);
++    }
++
++    public function restore(string $namespace, string $handle, string $id): JsonResponse
++    {
++        $revision = $this->findRevision($namespace, $handle, $id);
++
++        // Saving through the model fires the observer in AppServiceProvider,
++        // so the restore is recorded as a new revision and can be undone.
++        $blueprint = BlueprintModel::firstOrNew([
++            'namespace' => $namespace,
++            'handle' => $handle,
++        ]);
++
++        $blueprint->data = $revision->data;
++        $blueprint->save();
++
++        return response()->json(['restored' => true]);
++    }
++
++    private function findRevision(string $namespace, string $handle, string $id): BlueprintRevision
++    {
++        return BlueprintRevision::query()
++            ->where('namespace', $namespace)
++            ->where('handle', $handle)
++            ->findOrFail($id);
++    }
++
++    private function currentData(string $namespace, string $handle): array
++    {
++        $blueprint = BlueprintModel::query()
++            ->where('namespace', $namespace)
++            ->where('handle', $handle)
++            ->first();
++
++        return $blueprint?->getAttributeValue('data') ?? [];
++    }
++
++    /**
++     * Drop the sort counters Statamic adds to tabs/sections/fields on save,
++     * so two identical blueprints compare as equal.
++     */
++    private function withoutOrder(array $data): array
++    {
++        unset($data['__count']);
++
++        foreach ($data as $key => $value) {
++            if (is_array($value)) {
++                $data[$key] = $this->withoutOrder($value);
++            }
++        }
++
++        return $data;
++    }
++
++    /**
++     * Flatten nested data into dot paths, e.g. tabs.main.display => 'Body'.
++     * Empty arrays are kept as leaves so they still show up in the diff.
++     */
++    private function flatten(array $data, string $prefix = ''): array
++    {
++        $flat = [];
++
++        foreach ($data as $key => $value) {
++            $path = $prefix === '' ? (string) $key : $prefix.'.'.$key;
++
++            if (is_array($value) && $value !== []) {
++                $flat += $this->flatten($value, $path);
++            } else {
++                $flat[$path] = $value;
++            }
++        }
++
++        return $flat;
++    }
++}
+diff --git a/app/Models/BlueprintRevision.php b/app/Models/BlueprintRevision.php
+new file mode 100644
+index 0000000..6c96363
+--- /dev/null
++++ b/app/Models/BlueprintRevision.php
+@@ -0,0 +1,22 @@
++<?php
++
++namespace App\Models;
++
++use Illuminate\Database\Eloquent\Model;
++
++class BlueprintRevision extends Model
++{
++    protected $guarded = [];
++
++    /**
++     * Get the attributes that should be cast.
++     *
++     * @return array<string, string>
++     */
++    protected function casts(): array
++    {
++        return [
++            'data' => 'array',
++        ];
++    }
++}
+diff --git a/app/Providers/AppServiceProvider.php b/app/Providers/AppServiceProvider.php
+index 452e6b6..0f6a9e7 100644
+--- a/app/Providers/AppServiceProvider.php
++++ b/app/Providers/AppServiceProvider.php
+@@ -2,7 +2,10 @@
+ 
+ namespace App\Providers;
+ 
++use App\Models\BlueprintRevision;
+ use Illuminate\Support\ServiceProvider;
++use Statamic\Eloquent\Fields\BlueprintModel;
++use Statamic\Statamic;
+ 
+ class AppServiceProvider extends ServiceProvider
+ {
+@@ -19,6 +22,16 @@ public function register(): void
+      */
+     public function boot(): void
+     {
+-        //
++        // Every blueprint save goes through BlueprintModel::save(), so this
++        // records a snapshot of the stored contents as a revision.
++        BlueprintModel::saved(function (BlueprintModel $blueprint) {
++            BlueprintRevision::create([
++                'namespace' => $blueprint->getAttributeValue('namespace'),
++                'handle' => $blueprint->getAttributeValue('handle'),
++                'data' => $blueprint->getAttributeValue('data'),
++            ]);
++        });
++
++        Statamic::inlineScript(file_get_contents(resource_path('js/cp/blueprint-revisions.js')));
+     }
+ }
+diff --git a/database/migrations/2026_11_01_120000_create_blueprint_revisions_table.php b/database/migrations/2026_11_01_120000_create_blueprint_revisions_table.php
+new file mode 100644
+index 0000000..138a2e4
+--- /dev/null
++++ b/database/migrations/2026_11_01_120000_create_blueprint_revisions_table.php
+@@ -0,0 +1,32 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    /**
++     * Run the migrations.
++     */
++    public function up(): void
++    {
++        Schema::create('blueprint_revisions', function (Blueprint $table) {
++            $table->id();
++            $table->string('namespace')->nullable();
++            $table->string('handle');
++            $table->json('data');
++            $table->timestamps();
++
++            $table->index(['namespace', 'handle']);
++        });
++    }
++
++    /**
++     * Reverse the migrations.
++     */
++    public function down(): void
++    {
++        Schema::dropIfExists('blueprint_revisions');
++    }
++};
+diff --git a/resources/js/cp/blueprint-revisions.js b/resources/js/cp/blueprint-revisions.js
+new file mode 100644
+index 0000000..a8519d7
+--- /dev/null
++++ b/resources/js/cp/blueprint-revisions.js
+@@ -0,0 +1,182 @@
++// Adds a Revisions card to the blueprint edit page: history, preview and restore.
++// Loaded inline on every CP page, so it only acts on the blueprint edit URL.
++(function () {
++    var match = /^\/cp\/fields\/blueprints\/([^/]+)\/([^/]+)\/([^/]+)\/edit\/?$/.exec(window.location.pathname);
++
++    if (!match) {
++        return;
++    }
++
++    var namespace = match[1] + '.' + match[2];
++    var api = '/cp/blueprint-revisions/' + namespace + '/' + match[3];
++    var PANEL_ID = 'blueprint-revisions';
++
++    function xsrfToken() {
++        var cookie = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
++
++        return cookie ? decodeURIComponent(cookie[1]) : '';
++    }
++
++    function request(method, url) {
++        return fetch(url, {
++            method: method,
++            credentials: 'same-origin',
++            headers: {
++                Accept: 'application/json',
++                'X-Requested-With': 'XMLHttpRequest',
++                'X-XSRF-TOKEN': xsrfToken(),
++            },
++        }).then(function (response) {
++            if (!response.ok) {
++                throw new Error('HTTP ' + response.status);
++            }
++
++            return response.json();
++        });
++    }
++
++    function element(tag, attributes, text) {
++        var node = document.createElement(tag);
++
++        Object.keys(attributes || {}).forEach(function (name) {
++            node.setAttribute(name, attributes[name]);
++        });
++
++        if (text !== undefined) {
++            node.textContent = text;
++        }
++
++        return node;
++    }
++
++    function button(label, attribute, id, onClick) {
++        var attributes = { type: 'button', class: 'btn' };
++        attributes[attribute] = String(id);
++
++        var node = element('button', attributes, label);
++        node.addEventListener('click', onClick);
++
++        return node;
++    }
++
++    function formatValue(value) {
++        return JSON.stringify(value);
++    }
++
++    function renderHistory(panel, revisions) {
++        var nodes = [
++            element('h2', { class: 'text-lg font-medium' }, 'Revisions'),
++            element('p', { class: 'text-sm' }, 'Every save records a revision. Restoring one is recorded too, so it can be undone.'),
++        ];
++
++        if (revisions.length === 0) {
++            nodes.push(element('p', {}, 'No revisions yet.'));
++        } else {
++            var list = element('ul', {});
++
++            revisions.forEach(function (revision) {
++                var row = element('li', { 'data-revision-id': String(revision.id) });
++                row.appendChild(element('span', {}, new Date(revision.created_at).toLocaleString()));
++                row.appendChild(button('Preview', 'data-revision-preview', revision.id, function () {
++                    preview(panel, revision.id);
++                }));
++                row.appendChild(button('Restore', 'data-revision-restore', revision.id, function () {
++                    restore(panel, revision.id);
++                }));
++                list.appendChild(row);
++            });
++
++            nodes.push(list);
++        }
++
++        nodes.push(element('div', { 'data-revision-result': '' }));
++        panel.replaceChildren(...nodes);
++    }
++
++    function renderDiff(result, changes) {
++        if (changes.length === 0) {
++            result.replaceChildren(element('p', {}, 'Restoring this revision would change nothing.'));
++
++            return;
++        }
++
++        var table = element('table', {});
++        var header = element('tr', {});
++        ['Field path', 'Current', 'Revision'].forEach(function (label) {
++            header.appendChild(element('th', {}, label));
++        });
++        table.appendChild(header);
++
++        changes.forEach(function (change) {
++            var row = element('tr', {});
++            row.appendChild(element('td', {}, change.path));
++            row.appendChild(element('td', {}, formatValue(change.from)));
++            row.appendChild(element('td', {}, formatValue(change.to)));
++            table.appendChild(row);
++        });
++
++        result.replaceChildren(
++            element('p', {}, 'Restoring this revision would change ' + changes.length + (changes.length === 1 ? ' field:' : ' fields:')),
++            table
++        );
++    }
++
++    function preview(panel, id) {
++        var result = panel.querySelector('[data-revision-result]');
++        result.textContent = 'Loading preview…';
++
++        request('GET', api + '/' + id + '/diff')
++            .then(function (body) {
++                renderDiff(result, body.changes || []);
++            })
++            .catch(function () {
++                result.textContent = 'Preview failed.';
++            });
++    }
++
++    function restore(panel, id) {
++        var result = panel.querySelector('[data-revision-result]');
++        result.textContent = 'Restoring…';
++
++        request('POST', api + '/' + id + '/restore')
++            .then(function () {
++                window.location.reload();
++            })
++            .catch(function () {
++                result.textContent = 'Restore failed.';
++            });
++    }
++
++    function load(panel) {
++        request('GET', api)
++            .then(function (body) {
++                renderHistory(panel, body.revisions || []);
++            })
++            .catch(function () {
++                panel.replaceChildren(
++                    element('h2', { class: 'text-lg font-medium' }, 'Revisions'),
++                    element('p', {}, 'Revision history could not be loaded.')
++                );
++            });
++    }
++
++    function mount() {
++        if (document.getElementById(PANEL_ID)) {
++            return;
++        }
++
++        var main = document.querySelector('main');
++
++        if (!main) {
++            return;
++        }
++
++        var panel = element('section', { id: PANEL_ID, class: 'card' });
++        main.appendChild(panel);
++        load(panel);
++    }
++
++    // The editor renders client-side, and it can replace <main> on re-render, so keep checking.
++    new MutationObserver(mount).observe(document.documentElement, { childList: true, subtree: true });
++    mount();
++})();
+diff --git a/routes/web.php b/routes/web.php
+index 696865a..3507a94 100644
+--- a/routes/web.php
++++ b/routes/web.php
+@@ -1,7 +1,18 @@
+ <?php
+ 
++use App\Http\Controllers\BlueprintRevisionController;
+ use Illuminate\Support\Facades\Route;
+ 
+ // Route::statamic('example', 'example-view', [
+ //    'title' => 'Example'
+ // ]);
++
++Route::middleware(['statamic.cp', 'statamic.cp.authenticated'])
++    ->prefix('cp/blueprint-revisions/{namespace}/{handle}')
++    ->controller(BlueprintRevisionController::class)
++    ->group(function () {
++        Route::get('/', 'index');
++        // Not {revision}: Statamic binds that name globally to its own entry revisions.
++        Route::get('{id}/diff', 'diff');
++        Route::post('{id}/restore', 'restore');
++    });
