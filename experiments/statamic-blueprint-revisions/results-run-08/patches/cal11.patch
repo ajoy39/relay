@@ -1,0 +1,878 @@
+diff --git a/app/Http/Controllers/BlueprintRevisionController.php b/app/Http/Controllers/BlueprintRevisionController.php
+new file mode 100644
+index 0000000..90874d9
+--- /dev/null
++++ b/app/Http/Controllers/BlueprintRevisionController.php
+@@ -0,0 +1,109 @@
++<?php
++
++namespace App\Http\Controllers;
++
++use App\Models\BlueprintRevision;
++use Illuminate\Http\Request;
++
++class BlueprintRevisionController extends Controller
++{
++    public function index($namespace, $handle)
++    {
++        if (!auth()->check()) {
++            return response()->json(['error' => 'Unauthorized'], 401);
++        }
++
++        $ns = $namespace === 'null' ? null : $namespace;
++        $revisions = BlueprintRevision::where('namespace', $ns)
++            ->where('handle', $handle)
++            ->orderByDesc('created_at')
++            ->get(['id', 'created_at']);
++
++        return response()->json([
++            'revisions' => $revisions->map(fn ($r) => [
++                'id' => $r->id,
++                'created_at' => $r->created_at->toIso8601String(),
++            ]),
++        ]);
++    }
++
++    public function diff($namespace, $handle, $id)
++    {
++        if (!auth()->check()) {
++            return response()->json(['error' => 'Unauthorized'], 401);
++        }
++
++        $ns = $namespace === 'null' ? null : $namespace;
++        $revision = BlueprintRevision::find($id);
++
++        if (!$revision || $revision->namespace !== $ns || $revision->handle !== $handle) {
++            return response()->json(['changes' => []], 404);
++        }
++
++        $blueprintKey = $ns ? "$ns.$handle" : $handle;
++        $current = \Statamic\Facades\Blueprint::find($blueprintKey);
++        if (!$current) {
++            return response()->json(['changes' => []], 404);
++        }
++
++        $currentData = $current->contents();
++        $revisionData = $revision->data;
++
++        $changes = $this->computeDiff($revisionData, $currentData);
++
++        return response()->json(['changes' => $changes]);
++    }
++
++    public function restore($namespace, $handle, $id, Request $request)
++    {
++        if (!auth()->check()) {
++            return response()->json(['error' => 'Unauthorized'], 401);
++        }
++
++        $ns = $namespace === 'null' ? null : $namespace;
++        $revision = BlueprintRevision::find($id);
++
++        if (!$revision || $revision->namespace !== $ns || $revision->handle !== $handle) {
++            return response()->json(['restored' => false], 404);
++        }
++
++        $blueprintKey = $ns ? "$ns.$handle" : $handle;
++        $blueprint = \Statamic\Facades\Blueprint::find($blueprintKey);
++        if (!$blueprint) {
++            return response()->json(['restored' => false], 404);
++        }
++
++        $blueprint->setContents($revision->data);
++        $blueprint->save();
++
++        return response()->json(['restored' => true]);
++    }
++
++    private function computeDiff($from, $to)
++    {
++        $changes = [];
++        $this->diffRecursive($from, $to, '', $changes);
++        return $changes;
++    }
++
++    private function diffRecursive($from, $to, $path, &$changes)
++    {
++        $allKeys = array_unique(array_merge(array_keys((array) $from), array_keys((array) $to)));
++
++        foreach ($allKeys as $key) {
++            $currentPath = $path ? "$path.$key" : $key;
++            $fromVal = $from[$key] ?? null;
++            $toVal = $to[$key] ?? null;
++
++            if (is_array($fromVal) && is_array($toVal)) {
++                $this->diffRecursive($fromVal, $toVal, $currentPath, $changes);
++            } elseif ($fromVal !== $toVal) {
++                $changes[] = [
++                    'path' => $currentPath,
++                    'from' => $fromVal,
++                    'to' => $toVal,
++                ];
++            }
++        }
++    }
++}
+diff --git a/app/Http/Middleware/InjectBlueprintRevisionsScript.php b/app/Http/Middleware/InjectBlueprintRevisionsScript.php
+new file mode 100644
+index 0000000..6f0ea28
+--- /dev/null
++++ b/app/Http/Middleware/InjectBlueprintRevisionsScript.php
+@@ -0,0 +1,39 @@
++<?php
++
++namespace App\Http\Middleware;
++
++use Closure;
++use Illuminate\Http\Request;
++use Symfony\Component\HttpFoundation\Response;
++
++class InjectBlueprintRevisionsScript
++{
++    public function handle(Request $request, Closure $next): Response
++    {
++        $response = $next($request);
++
++        // Only inject for CP routes and HTML responses
++        if (!$request->is('cp/*') || !$this->isHtml($response)) {
++            return $response;
++        }
++
++        $scriptUrl = asset('js/blueprint-revisions.js');
++        $script = "<script src=\"{$scriptUrl}\"></script>";
++
++        $content = (string) $response->getContent();
++
++        // Inject before closing body tag
++        if (str_contains($content, '</body>')) {
++            $content = str_replace('</body>', $script . '</body>', $content);
++            $response->setContent($content);
++        }
++
++        return $response;
++    }
++
++    private function isHtml(Response $response): bool
++    {
++        $contentType = $response->headers->get('Content-Type', '');
++        return str_contains($contentType, 'text/html');
++    }
++}
+diff --git a/app/Listeners/RecordBlueprintRevision.php b/app/Listeners/RecordBlueprintRevision.php
+new file mode 100644
+index 0000000..10d0f78
+--- /dev/null
++++ b/app/Listeners/RecordBlueprintRevision.php
+@@ -0,0 +1,33 @@
++<?php
++
++namespace App\Listeners;
++
++use App\Models\BlueprintRevision;
++
++class RecordBlueprintRevision
++{
++    public function handle($event)
++    {
++        try {
++            $blueprint = $event->blueprint;
++
++            \Log::debug('RecordBlueprintRevision: Recording revision', [
++                'handle' => $blueprint->handle(),
++                'namespace' => $blueprint->namespace(),
++            ]);
++
++            BlueprintRevision::create([
++                'namespace' => $blueprint->namespace(),
++                'handle' => $blueprint->handle(),
++                'data' => $blueprint->contents(),
++            ]);
++
++            \Log::debug('RecordBlueprintRevision: Revision recorded successfully');
++        } catch (\Exception $e) {
++            \Log::error('Failed to record blueprint revision', [
++                'error' => $e->getMessage(),
++                'trace' => $e->getTraceAsString(),
++            ]);
++        }
++    }
++}
+diff --git a/app/Models/BlueprintRevision.php b/app/Models/BlueprintRevision.php
+new file mode 100644
+index 0000000..bb5d372
+--- /dev/null
++++ b/app/Models/BlueprintRevision.php
+@@ -0,0 +1,18 @@
++<?php
++
++namespace App\Models;
++
++use Illuminate\Database\Eloquent\Model;
++
++class BlueprintRevision extends Model
++{
++    protected $guarded = [];
++    protected $casts = [
++        'data' => 'array',
++    ];
++
++    public function getTable()
++    {
++        return config('statamic.eloquent-driver.table_prefix', '').'blueprint_revisions';
++    }
++}
+diff --git a/app/Observers/BlueprintModelObserver.php b/app/Observers/BlueprintModelObserver.php
+new file mode 100644
+index 0000000..b9c94ab
+--- /dev/null
++++ b/app/Observers/BlueprintModelObserver.php
+@@ -0,0 +1,21 @@
++<?php
++
++namespace App\Observers;
++
++use App\Models\BlueprintRevision;
++
++class BlueprintModelObserver
++{
++    public function saved($model)
++    {
++        try {
++            BlueprintRevision::create([
++                'namespace' => $model->namespace,
++                'handle' => $model->handle,
++                'data' => $model->data,
++            ]);
++        } catch (\Exception $e) {
++            // Silently fail to avoid breaking the blueprint save
++        }
++    }
++}
+diff --git a/app/Providers/AppServiceProvider.php b/app/Providers/AppServiceProvider.php
+index 452e6b6..fe45de3 100644
+--- a/app/Providers/AppServiceProvider.php
++++ b/app/Providers/AppServiceProvider.php
+@@ -3,6 +3,9 @@
+ namespace App\Providers;
+ 
+ use Illuminate\Support\ServiceProvider;
++use Statamic\Events\BlueprintSaved;
++use App\Listeners\RecordBlueprintRevision;
++use Inertia\Inertia;
+ 
+ class AppServiceProvider extends ServiceProvider
+ {
+@@ -19,6 +22,13 @@ public function register(): void
+      */
+     public function boot(): void
+     {
+-        //
++        \Illuminate\Support\Facades\Event::listen(BlueprintSaved::class, RecordBlueprintRevision::class);
++
++        // Register observer for blueprint model to record revisions
++        \Statamic\Eloquent\Fields\BlueprintModel::observe(\App\Observers\BlueprintModelObserver::class);
++
++        Inertia::share([
++            'revisions_api_base' => fn () => '/cp/blueprint-revisions',
++        ]);
+     }
+ }
+diff --git a/bootstrap/app.php b/bootstrap/app.php
+index 1085719..7ce75a1 100644
+--- a/bootstrap/app.php
++++ b/bootstrap/app.php
+@@ -12,7 +12,7 @@
+         health: '/up',
+     )
+     ->withMiddleware(function (Middleware $middleware): void {
+-        //
++        $middleware->append(\App\Http\Middleware\InjectBlueprintRevisionsScript::class);
+     })
+     ->withExceptions(function (Exceptions $exceptions): void {
+         $exceptions->shouldRenderJsonWhen(
+diff --git a/database/migrations/2026_10_31_160000_create_blueprint_revisions_table.php b/database/migrations/2026_10_31_160000_create_blueprint_revisions_table.php
+new file mode 100644
+index 0000000..a3f88a2
+--- /dev/null
++++ b/database/migrations/2026_10_31_160000_create_blueprint_revisions_table.php
+@@ -0,0 +1,26 @@
++<?php
++
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++use Statamic\Eloquent\Database\BaseMigration as Migration;
++
++return new class extends Migration
++{
++    public function up()
++    {
++        Schema::create($this->prefix('blueprint_revisions'), function (Blueprint $table) {
++            $table->id();
++            $table->string('namespace')->nullable()->index();
++            $table->string('handle')->index();
++            $table->jsonb('data');
++            $table->timestamps();
++
++            $table->index(['namespace', 'handle']);
++        });
++    }
++
++    public function down()
++    {
++        Schema::dropIfExists($this->prefix('blueprint_revisions'));
++    }
++};
+diff --git a/public/js/blueprint-revisions.js b/public/js/blueprint-revisions.js
+new file mode 100644
+index 0000000..fc2dd2c
+--- /dev/null
++++ b/public/js/blueprint-revisions.js
+@@ -0,0 +1,259 @@
++// Blueprint revisions UI injection
++const injectUI = async () => {
++  // Check if we're on a blueprint edit page by looking at the URL
++  // URL format: /cp/fields/blueprints/{collection}/{type}/{handle}/edit
++  // or: /cp/fields/blueprints/{namespace.with.dots}/{handle}/edit
++  const match = window.location.pathname.match(/\/cp\/fields\/blueprints\/(.+)\/([^/]+)\/edit/);
++  if (!match) {
++    // Try again in a moment if page not fully loaded
++    setTimeout(injectUI, 1000);
++    return;
++  }
++
++  let [, namespace, handle] = match;
++  // Convert URL parts to dot notation
++  // If namespace is like "collections/pages", convert to "collections.pages"
++  namespace = namespace.replace(/\//g, '.');
++  const apiBase = '/cp/blueprint-revisions';
++  const apiUrl = `${apiBase}/${namespace}/${handle}`;
++
++  try {
++    // Fetch revisions
++    const res = await fetch(apiUrl);
++    if (!res.ok) return;
++
++    const data = await res.json();
++    if (!data.revisions || !Array.isArray(data.revisions)) return;
++
++    // Wait a bit for the page to fully render
++    await new Promise(resolve => setTimeout(resolve, 500));
++
++    // Inject revision UI into the page
++    injectRevisionUI(namespace, handle, data.revisions, apiBase);
++  } catch (e) {
++    console.error('Failed to load blueprint revisions:', e);
++  }
++};
++
++// Start injection immediately
++if (document.readyState === 'loading') {
++  document.addEventListener('DOMContentLoaded', injectUI);
++} else {
++  injectUI();
++}
++
++function injectRevisionUI(namespace, handle, revisions, apiBase) {
++  // Find or create a section for revisions
++  let revisionsSection = document.querySelector('[data-revisions-section]');
++
++  if (!revisionsSection) {
++    // Create the revisions section
++    const mainContent = document.querySelector('main') || document.body;
++    revisionsSection = document.createElement('div');
++    revisionsSection.setAttribute('data-revisions-section', '');
++    revisionsSection.innerHTML = `
++      <div style="padding: 20px; border-top: 1px solid #e5e7eb;">
++        <h3 style="margin: 0 0 15px 0; font-size: 16px; font-weight: 600;">Revisions</h3>
++        <div data-revisions-list style="display: flex; flex-direction: column; gap: 10px;"></div>
++      </div>
++    `;
++    mainContent.appendChild(revisionsSection);
++  }
++
++  const list = document.querySelector('[data-revisions-list]');
++  if (!list) return;
++
++  // Clear existing revisions
++  list.innerHTML = '';
++
++  // Add each revision
++  revisions.forEach(revision => {
++    const row = document.createElement('div');
++    row.setAttribute('data-revision-id', revision.id);
++    row.style.cssText = `
++      padding: 10px;
++      border: 1px solid #d1d5db;
++      border-radius: 4px;
++      display: flex;
++      justify-content: space-between;
++      align-items: center;
++    `;
++
++    const dateStr = new Date(revision.created_at).toLocaleString();
++    const info = document.createElement('div');
++    info.textContent = dateStr;
++
++    const buttons = document.createElement('div');
++    buttons.style.cssText = 'display: flex; gap: 8px;';
++
++    // Preview button
++    const previewBtn = document.createElement('button');
++    previewBtn.setAttribute('data-revision-preview', revision.id);
++    previewBtn.textContent = 'Preview';
++    previewBtn.style.cssText = `
++      padding: 6px 12px;
++      background: #3b82f6;
++      color: white;
++      border: none;
++      border-radius: 4px;
++      cursor: pointer;
++      font-size: 12px;
++    `;
++    previewBtn.addEventListener('click', () => showPreview(namespace, handle, revision.id, apiBase));
++
++    // Restore button
++    const restoreBtn = document.createElement('button');
++    restoreBtn.setAttribute('data-revision-restore', revision.id);
++    restoreBtn.textContent = 'Restore';
++    restoreBtn.style.cssText = `
++      padding: 6px 12px;
++      background: #10b981;
++      color: white;
++      border: none;
++      border-radius: 4px;
++      cursor: pointer;
++      font-size: 12px;
++    `;
++    restoreBtn.addEventListener('click', () => restoreRevision(namespace, handle, revision.id, apiBase));
++
++    buttons.appendChild(previewBtn);
++    buttons.appendChild(restoreBtn);
++
++    row.appendChild(info);
++    row.appendChild(buttons);
++
++    list.appendChild(row);
++  });
++}
++
++function showPreview(namespace, handle, revisionId, apiBase) {
++  const apiUrl = `${apiBase}/${namespace}/${handle}/${revisionId}/diff`;
++
++  fetch(apiUrl)
++    .then(res => res.json())
++    .then(data => {
++      // Create and show a preview modal or section
++      let preview = document.querySelector(`[data-revision-preview-modal="${revisionId}"]`);
++      if (!preview) {
++        preview = document.createElement('div');
++        preview.setAttribute('data-revision-preview-modal', revisionId);
++        preview.style.cssText = `
++          position: fixed;
++          top: 20px;
++          right: 20px;
++          background: white;
++          border: 1px solid #d1d5db;
++          border-radius: 8px;
++          padding: 20px;
++          max-width: 500px;
++          max-height: 80vh;
++          overflow-y: auto;
++          box-shadow: 0 10px 25px rgba(0,0,0,0.1);
++          z-index: 9999;
++        `;
++
++        const closeBtn = document.createElement('button');
++        closeBtn.innerHTML = '&times;';
++        closeBtn.style.cssText = `
++          position: absolute;
++          top: 10px;
++          right: 10px;
++          background: none;
++          border: none;
++          font-size: 24px;
++          cursor: pointer;
++        `;
++        closeBtn.addEventListener('click', () => preview.remove());
++
++        preview.appendChild(closeBtn);
++
++        const title = document.createElement('h4');
++        title.textContent = 'Preview Changes';
++        title.style.cssText = 'margin: 0 0 15px 0; font-size: 14px; font-weight: 600;';
++        preview.appendChild(title);
++
++        const changesList = document.createElement('div');
++        changesList.setAttribute('data-preview-changes', '');
++        preview.appendChild(changesList);
++
++        document.body.appendChild(preview);
++      }
++
++      // Populate changes
++      const changesList = preview.querySelector('[data-preview-changes]');
++      changesList.innerHTML = '';
++
++      if (!data.changes || data.changes.length === 0) {
++        changesList.textContent = 'No changes';
++      } else {
++        data.changes.forEach(change => {
++          const changeEl = document.createElement('div');
++          changeEl.style.cssText = `
++            margin-bottom: 12px;
++            padding: 10px;
++            background: #f3f4f6;
++            border-radius: 4px;
++            font-size: 12px;
++          `;
++
++          const pathEl = document.createElement('div');
++          pathEl.textContent = `Path: ${change.path}`;
++          pathEl.style.cssText = 'font-weight: 600; margin-bottom: 5px;';
++
++          const fromEl = document.createElement('div');
++          fromEl.textContent = `From: ${JSON.stringify(change.from)}`;
++          fromEl.style.cssText = 'color: #ef4444; margin-bottom: 3px; word-break: break-all;';
++
++          const toEl = document.createElement('div');
++          toEl.textContent = `To: ${JSON.stringify(change.to)}`;
++          toEl.style.cssText = 'color: #10b981; word-break: break-all;';
++
++          changeEl.appendChild(pathEl);
++          changeEl.appendChild(fromEl);
++          changeEl.appendChild(toEl);
++
++          changesList.appendChild(changeEl);
++        });
++      }
++    })
++    .catch(e => console.error('Failed to load preview:', e));
++}
++
++function restoreRevision(namespace, handle, revisionId, apiBase) {
++  const apiUrl = `${apiBase}/${namespace}/${handle}/${revisionId}/restore`;
++
++  // Get CSRF token from meta tag or cookies
++  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
++  const xsrfCookie = document.cookie.split('; ').find(row => row.startsWith('XSRF-TOKEN='));
++
++  const headers = {
++    'Content-Type': 'application/json',
++    'Accept': 'application/json',
++    'X-Requested-With': 'XMLHttpRequest',
++  };
++
++  if (csrfToken) {
++    headers['X-CSRF-TOKEN'] = csrfToken;
++  }
++  if (xsrfCookie) {
++    headers['X-XSRF-TOKEN'] = decodeURIComponent(xsrfCookie.split('=')[1]);
++  }
++
++  fetch(apiUrl, {
++    method: 'POST',
++    headers,
++  })
++    .then(res => res.json())
++    .then(data => {
++      if (data.restored) {
++        alert('Revision restored successfully');
++        window.location.reload();
++      } else {
++        alert('Failed to restore revision');
++      }
++    })
++    .catch(e => {
++      console.error('Failed to restore revision:', e);
++      alert('Error restoring revision');
++    });
++}
+diff --git a/resources/js/blueprint-revisions.js b/resources/js/blueprint-revisions.js
+new file mode 100644
+index 0000000..fc2dd2c
+--- /dev/null
++++ b/resources/js/blueprint-revisions.js
+@@ -0,0 +1,259 @@
++// Blueprint revisions UI injection
++const injectUI = async () => {
++  // Check if we're on a blueprint edit page by looking at the URL
++  // URL format: /cp/fields/blueprints/{collection}/{type}/{handle}/edit
++  // or: /cp/fields/blueprints/{namespace.with.dots}/{handle}/edit
++  const match = window.location.pathname.match(/\/cp\/fields\/blueprints\/(.+)\/([^/]+)\/edit/);
++  if (!match) {
++    // Try again in a moment if page not fully loaded
++    setTimeout(injectUI, 1000);
++    return;
++  }
++
++  let [, namespace, handle] = match;
++  // Convert URL parts to dot notation
++  // If namespace is like "collections/pages", convert to "collections.pages"
++  namespace = namespace.replace(/\//g, '.');
++  const apiBase = '/cp/blueprint-revisions';
++  const apiUrl = `${apiBase}/${namespace}/${handle}`;
++
++  try {
++    // Fetch revisions
++    const res = await fetch(apiUrl);
++    if (!res.ok) return;
++
++    const data = await res.json();
++    if (!data.revisions || !Array.isArray(data.revisions)) return;
++
++    // Wait a bit for the page to fully render
++    await new Promise(resolve => setTimeout(resolve, 500));
++
++    // Inject revision UI into the page
++    injectRevisionUI(namespace, handle, data.revisions, apiBase);
++  } catch (e) {
++    console.error('Failed to load blueprint revisions:', e);
++  }
++};
++
++// Start injection immediately
++if (document.readyState === 'loading') {
++  document.addEventListener('DOMContentLoaded', injectUI);
++} else {
++  injectUI();
++}
++
++function injectRevisionUI(namespace, handle, revisions, apiBase) {
++  // Find or create a section for revisions
++  let revisionsSection = document.querySelector('[data-revisions-section]');
++
++  if (!revisionsSection) {
++    // Create the revisions section
++    const mainContent = document.querySelector('main') || document.body;
++    revisionsSection = document.createElement('div');
++    revisionsSection.setAttribute('data-revisions-section', '');
++    revisionsSection.innerHTML = `
++      <div style="padding: 20px; border-top: 1px solid #e5e7eb;">
++        <h3 style="margin: 0 0 15px 0; font-size: 16px; font-weight: 600;">Revisions</h3>
++        <div data-revisions-list style="display: flex; flex-direction: column; gap: 10px;"></div>
++      </div>
++    `;
++    mainContent.appendChild(revisionsSection);
++  }
++
++  const list = document.querySelector('[data-revisions-list]');
++  if (!list) return;
++
++  // Clear existing revisions
++  list.innerHTML = '';
++
++  // Add each revision
++  revisions.forEach(revision => {
++    const row = document.createElement('div');
++    row.setAttribute('data-revision-id', revision.id);
++    row.style.cssText = `
++      padding: 10px;
++      border: 1px solid #d1d5db;
++      border-radius: 4px;
++      display: flex;
++      justify-content: space-between;
++      align-items: center;
++    `;
++
++    const dateStr = new Date(revision.created_at).toLocaleString();
++    const info = document.createElement('div');
++    info.textContent = dateStr;
++
++    const buttons = document.createElement('div');
++    buttons.style.cssText = 'display: flex; gap: 8px;';
++
++    // Preview button
++    const previewBtn = document.createElement('button');
++    previewBtn.setAttribute('data-revision-preview', revision.id);
++    previewBtn.textContent = 'Preview';
++    previewBtn.style.cssText = `
++      padding: 6px 12px;
++      background: #3b82f6;
++      color: white;
++      border: none;
++      border-radius: 4px;
++      cursor: pointer;
++      font-size: 12px;
++    `;
++    previewBtn.addEventListener('click', () => showPreview(namespace, handle, revision.id, apiBase));
++
++    // Restore button
++    const restoreBtn = document.createElement('button');
++    restoreBtn.setAttribute('data-revision-restore', revision.id);
++    restoreBtn.textContent = 'Restore';
++    restoreBtn.style.cssText = `
++      padding: 6px 12px;
++      background: #10b981;
++      color: white;
++      border: none;
++      border-radius: 4px;
++      cursor: pointer;
++      font-size: 12px;
++    `;
++    restoreBtn.addEventListener('click', () => restoreRevision(namespace, handle, revision.id, apiBase));
++
++    buttons.appendChild(previewBtn);
++    buttons.appendChild(restoreBtn);
++
++    row.appendChild(info);
++    row.appendChild(buttons);
++
++    list.appendChild(row);
++  });
++}
++
++function showPreview(namespace, handle, revisionId, apiBase) {
++  const apiUrl = `${apiBase}/${namespace}/${handle}/${revisionId}/diff`;
++
++  fetch(apiUrl)
++    .then(res => res.json())
++    .then(data => {
++      // Create and show a preview modal or section
++      let preview = document.querySelector(`[data-revision-preview-modal="${revisionId}"]`);
++      if (!preview) {
++        preview = document.createElement('div');
++        preview.setAttribute('data-revision-preview-modal', revisionId);
++        preview.style.cssText = `
++          position: fixed;
++          top: 20px;
++          right: 20px;
++          background: white;
++          border: 1px solid #d1d5db;
++          border-radius: 8px;
++          padding: 20px;
++          max-width: 500px;
++          max-height: 80vh;
++          overflow-y: auto;
++          box-shadow: 0 10px 25px rgba(0,0,0,0.1);
++          z-index: 9999;
++        `;
++
++        const closeBtn = document.createElement('button');
++        closeBtn.innerHTML = '&times;';
++        closeBtn.style.cssText = `
++          position: absolute;
++          top: 10px;
++          right: 10px;
++          background: none;
++          border: none;
++          font-size: 24px;
++          cursor: pointer;
++        `;
++        closeBtn.addEventListener('click', () => preview.remove());
++
++        preview.appendChild(closeBtn);
++
++        const title = document.createElement('h4');
++        title.textContent = 'Preview Changes';
++        title.style.cssText = 'margin: 0 0 15px 0; font-size: 14px; font-weight: 600;';
++        preview.appendChild(title);
++
++        const changesList = document.createElement('div');
++        changesList.setAttribute('data-preview-changes', '');
++        preview.appendChild(changesList);
++
++        document.body.appendChild(preview);
++      }
++
++      // Populate changes
++      const changesList = preview.querySelector('[data-preview-changes]');
++      changesList.innerHTML = '';
++
++      if (!data.changes || data.changes.length === 0) {
++        changesList.textContent = 'No changes';
++      } else {
++        data.changes.forEach(change => {
++          const changeEl = document.createElement('div');
++          changeEl.style.cssText = `
++            margin-bottom: 12px;
++            padding: 10px;
++            background: #f3f4f6;
++            border-radius: 4px;
++            font-size: 12px;
++          `;
++
++          const pathEl = document.createElement('div');
++          pathEl.textContent = `Path: ${change.path}`;
++          pathEl.style.cssText = 'font-weight: 600; margin-bottom: 5px;';
++
++          const fromEl = document.createElement('div');
++          fromEl.textContent = `From: ${JSON.stringify(change.from)}`;
++          fromEl.style.cssText = 'color: #ef4444; margin-bottom: 3px; word-break: break-all;';
++
++          const toEl = document.createElement('div');
++          toEl.textContent = `To: ${JSON.stringify(change.to)}`;
++          toEl.style.cssText = 'color: #10b981; word-break: break-all;';
++
++          changeEl.appendChild(pathEl);
++          changeEl.appendChild(fromEl);
++          changeEl.appendChild(toEl);
++
++          changesList.appendChild(changeEl);
++        });
++      }
++    })
++    .catch(e => console.error('Failed to load preview:', e));
++}
++
++function restoreRevision(namespace, handle, revisionId, apiBase) {
++  const apiUrl = `${apiBase}/${namespace}/${handle}/${revisionId}/restore`;
++
++  // Get CSRF token from meta tag or cookies
++  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
++  const xsrfCookie = document.cookie.split('; ').find(row => row.startsWith('XSRF-TOKEN='));
++
++  const headers = {
++    'Content-Type': 'application/json',
++    'Accept': 'application/json',
++    'X-Requested-With': 'XMLHttpRequest',
++  };
++
++  if (csrfToken) {
++    headers['X-CSRF-TOKEN'] = csrfToken;
++  }
++  if (xsrfCookie) {
++    headers['X-XSRF-TOKEN'] = decodeURIComponent(xsrfCookie.split('=')[1]);
++  }
++
++  fetch(apiUrl, {
++    method: 'POST',
++    headers,
++  })
++    .then(res => res.json())
++    .then(data => {
++      if (data.restored) {
++        alert('Revision restored successfully');
++        window.location.reload();
++      } else {
++        alert('Failed to restore revision');
++      }
++    })
++    .catch(e => {
++      console.error('Failed to restore revision:', e);
++      alert('Error restoring revision');
++    });
++}
+diff --git a/routes/web.php b/routes/web.php
+index 696865a..cc615ed 100644
+--- a/routes/web.php
++++ b/routes/web.php
+@@ -1,6 +1,11 @@
+ <?php
+ 
+ use Illuminate\Support\Facades\Route;
++use App\Http\Controllers\BlueprintRevisionController;
++
++Route::get('/cp/blueprint-revisions/{namespace}/{handle}', [BlueprintRevisionController::class, 'index']);
++Route::get('/cp/blueprint-revisions/{namespace}/{handle}/{id}/diff', [BlueprintRevisionController::class, 'diff']);
++Route::post('/cp/blueprint-revisions/{namespace}/{handle}/{id}/restore', [BlueprintRevisionController::class, 'restore']);
+ 
+ // Route::statamic('example', 'example-view', [
+ //    'title' => 'Example'
+diff --git a/storage/debugbar/.gitignore b/storage/debugbar/.gitignore
+deleted file mode 100644
+index d6b7ef3..0000000
+--- a/storage/debugbar/.gitignore
++++ /dev/null
+@@ -1,2 +0,0 @@
+-*
+-!.gitignore

@@ -12,10 +12,11 @@ mkdir -p "$L/trials" "$G/spec" "$G/log"
 # Stub gate: records what it was given and exits $STUB_RC.
 cat > "$G/spec/gate.sh" <<'EOF'
 echo "GATE-RAN app=$1 port=$2 lab=$LAB_ROOT audit=$GATE_AUDIT_LOG pw=$PLAYWRIGHT_BROWSERS_PATH" >> "$LAB_ROOT/gate-ran.log"
+echo "$1" > "$LAB_ROOT/gate-app-path"; touch "$1/written-by-gate"; [ -e "$1/trial-marker" ] && touch "$LAB_ROOT/copy-had-trial-content"
 exit "${STUB_RC:-0}"
 EOF
 printf 'tA\tA\t59001\tclaude-haiku-5-5\ntB\tB\t59002\tclaude-haiku-5-5\n' > "$G/schedule.tsv"
-for t in tA tB tX; do mkdir -p "$L/trials/$t"; done
+for t in tA tB tX; do mkdir -p "$L/trials/$t"; echo x > "$L/trials/$t/trial-marker"; done
 mkdir -p "$WORK/elsewhere/tB"
 
 rg() { # caller args... -> out, rc
@@ -41,7 +42,13 @@ chk "every refusal is in the gate's audit log" "$(grep -c REFUSED "$G/log/gate-a
 
 echo "== run-gate: allowed runs"
 rg labtrial "$L/trials/tB" 59002; chk "arm B, asked by the trial user -> runs" "$rc" "0"
-has "  ...on the resolved trial path and its port" "$(cat "$L/gate-ran.log")" "app=$(cd "$L/trials/tB" && pwd -P) port=59002"
+# Amendment A3: the gate gets a copy in the gate's work area, never the trial.
+has "  ...on its port" "$(cat "$L/gate-ran.log")" " port=59002 "
+case "$(cat "$L/gate-app-path")" in "$G/work/tB."*) r=copy ;; *) r="$(cat "$L/gate-app-path")" ;; esac
+chk "  ...on a copy in the gate's work area (A3), not the trial" "$r" "copy"
+chk "  ...the copy holds the trial's content" "$( [ -e "$L/copy-had-trial-content" ] && echo yes || echo no)" "yes"
+chk "  ...nothing the gate writes lands in the trial" "$( [ -e "$L/trials/tB/written-by-gate" ] && echo leaked || echo clean)" "clean"
+chk "  ...and the copy is removed afterwards" "$(ls -A "$G/work" 2>/dev/null | wc -l | tr -d ' ')" "0"
 has "  ...with the audit log in the gate area" "$(cat "$L/gate-ran.log")" "audit=$G/log/gate-audit.log"
 has "  ...and Playwright's browsers in the gate area" "$(cat "$L/gate-ran.log")" "pw=$G/browsers"
 STUB_RC=1 rg owner "$L/trials/tA" 59001; chk "arm A, asked by the owner (scoring) -> runs, RED passed through" "$rc" "1"
