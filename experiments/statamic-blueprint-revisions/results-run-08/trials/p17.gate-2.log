@@ -1,0 +1,5 @@
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Permission denied
+chdir: error retrieving current directory: getcwd: cannot access parent directories: Permission denied
+cp: /Users/Shared/lab/trials/p17/storage/inertia-devtools: unable to copy extended attributes to /Users/Shared/lab/gate/work/p17.9040/storage/inertia-devtools: Permission denied
+cp: /Users/Shared/lab/trials/p17/storage/inertia-devtools: Permission denied
+run-gate: refused: could not copy trial p17 for gating

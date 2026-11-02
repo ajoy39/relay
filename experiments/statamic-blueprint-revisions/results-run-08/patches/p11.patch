@@ -1,0 +1,661 @@
+diff --git a/app/Http/Controllers/BlueprintRevisionController.php b/app/Http/Controllers/BlueprintRevisionController.php
+new file mode 100644
+index 0000000..ad4197b
+--- /dev/null
++++ b/app/Http/Controllers/BlueprintRevisionController.php
+@@ -0,0 +1,72 @@
++<?php
++
++namespace App\Http\Controllers;
++
++use App\Models\BlueprintRevision;
++use App\Support\DataDiff;
++use Illuminate\Http\JsonResponse;
++use Illuminate\Support\Arr;
++use Statamic\Facades\Blueprint;
++
++class BlueprintRevisionController extends Controller
++{
++    public function index(string $namespace, string $handle): JsonResponse
++    {
++        $revisions = BlueprintRevision::query()
++            ->where('namespace', $namespace)
++            ->where('handle', $handle)
++            ->orderByDesc('id')
++            ->get()
++            ->map(fn (BlueprintRevision $revision) => [
++                'id' => $revision->id,
++                'created_at' => $revision->created_at->toIso8601String(),
++            ])
++            ->values();
++
++        return response()->json(['revisions' => $revisions]);
++    }
++
++    public function diff(string $namespace, string $handle, int $id): JsonResponse
++    {
++        $revision = $this->revision($namespace, $handle, $id);
++
++        $changes = DataDiff::between($this->currentData($namespace, $handle), $revision->data);
++
++        return response()->json(['changes' => $changes]);
++    }
++
++    public function restore(string $namespace, string $handle, int $id): JsonResponse
++    {
++        $revision = $this->revision($namespace, $handle, $id);
++
++        // Saved through Statamic's blueprint API, so caches are cleared and the
++        // write is recorded by the revision observer like any other save.
++        Blueprint::make()
++            ->setHidden(Arr::get($revision->data, 'hide'))
++            ->setOrder(Arr::get($revision->data, 'order'))
++            ->setHandle($handle)
++            ->setNamespace($namespace)
++            ->setContents($revision->data)
++            ->save();
++
++        return response()->json(['restored' => true]);
++    }
++
++    private function revision(string $namespace, string $handle, int $id): BlueprintRevision
++    {
++        return BlueprintRevision::query()
++            ->where('namespace', $namespace)
++            ->where('handle', $handle)
++            ->findOrFail($id);
++    }
++
++    private function currentData(string $namespace, string $handle): array
++    {
++        $blueprint = app('statamic.eloquent.blueprints.model')::query()
++            ->where('namespace', $namespace)
++            ->where('handle', $handle)
++            ->first();
++
++        return $blueprint?->getAttributeValue('data') ?? [];
++    }
++}
+diff --git a/app/Models/BlueprintRevision.php b/app/Models/BlueprintRevision.php
+new file mode 100644
+index 0000000..fcec8f2
+--- /dev/null
++++ b/app/Models/BlueprintRevision.php
+@@ -0,0 +1,17 @@
++<?php
++
++namespace App\Models;
++
++use Illuminate\Database\Eloquent\Model;
++
++class BlueprintRevision extends Model
++{
++    protected $guarded = [];
++
++    protected function casts(): array
++    {
++        return [
++            'data' => 'array',
++        ];
++    }
++}
+diff --git a/app/Observers/BlueprintRevisionObserver.php b/app/Observers/BlueprintRevisionObserver.php
+new file mode 100644
+index 0000000..d49b11d
+--- /dev/null
++++ b/app/Observers/BlueprintRevisionObserver.php
+@@ -0,0 +1,22 @@
++<?php
++
++namespace App\Observers;
++
++use App\Models\BlueprintRevision;
++use Illuminate\Database\Eloquent\Model;
++
++class BlueprintRevisionObserver
++{
++    /**
++     * Every save of a blueprint row records a snapshot of its stored contents.
++     * Restores write through the same model, so they are recorded too.
++     */
++    public function saved(Model $blueprint): void
++    {
++        BlueprintRevision::create([
++            'namespace' => $blueprint->getAttributeValue('namespace'),
++            'handle' => $blueprint->getAttributeValue('handle'),
++            'data' => $blueprint->getAttributeValue('data') ?? [],
++        ]);
++    }
++}
+diff --git a/app/Providers/AppServiceProvider.php b/app/Providers/AppServiceProvider.php
+index 452e6b6..8a30e88 100644
+--- a/app/Providers/AppServiceProvider.php
++++ b/app/Providers/AppServiceProvider.php
+@@ -2,7 +2,9 @@
+ 
+ namespace App\Providers;
+ 
++use App\Observers\BlueprintRevisionObserver;
+ use Illuminate\Support\ServiceProvider;
++use Statamic\Statamic;
+ 
+ class AppServiceProvider extends ServiceProvider
+ {
+@@ -19,6 +21,15 @@ public function register(): void
+      */
+     public function boot(): void
+     {
+-        //
++        $this->registerBlueprintRevisions();
++    }
++
++    private function registerBlueprintRevisions(): void
++    {
++        // Attached on every boot: Eloquent swaps in a fresh event dispatcher
++        // per application, which would drop listeners from an earlier boot.
++        app('statamic.eloquent.blueprints.model')::observe(BlueprintRevisionObserver::class);
++
++        Statamic::inlineScript(file_get_contents(resource_path('js/blueprint-revisions.js')));
+     }
+ }
+diff --git a/app/Support/DataDiff.php b/app/Support/DataDiff.php
+new file mode 100644
+index 0000000..426bb43
+--- /dev/null
++++ b/app/Support/DataDiff.php
+@@ -0,0 +1,52 @@
++<?php
++
++namespace App\Support;
++
++class DataDiff
++{
++    /**
++     * Leaf-level differences from $from to $to, keyed by dot path.
++     * Unchanged values are omitted. Blueprint `__count` keys are storage
++     * ordering metadata rather than content, so they are ignored.
++     *
++     * @return array<int, array{path: string, from: mixed, to: mixed}>
++     */
++    public static function between(array $from, array $to): array
++    {
++        return self::compare(self::normalize($from), self::normalize($to), '');
++    }
++
++    private static function compare(mixed $from, mixed $to, string $path): array
++    {
++        if (! is_array($from) || ! is_array($to)) {
++            return $from === $to ? [] : [['path' => $path, 'from' => $from, 'to' => $to]];
++        }
++
++        $changes = [];
++
++        foreach (array_unique([...array_keys($from), ...array_keys($to)]) as $key) {
++            $childPath = $path === '' ? (string) $key : $path.'.'.$key;
++
++            if (! array_key_exists($key, $from) || ! array_key_exists($key, $to)) {
++                $changes[] = ['path' => $childPath, 'from' => $from[$key] ?? null, 'to' => $to[$key] ?? null];
++
++                continue;
++            }
++
++            $changes = [...$changes, ...self::compare($from[$key], $to[$key], $childPath)];
++        }
++
++        return $changes;
++    }
++
++    private static function normalize(mixed $value): mixed
++    {
++        if (! is_array($value)) {
++            return $value;
++        }
++
++        unset($value['__count']);
++
++        return array_map(fn ($child) => self::normalize($child), $value);
++    }
++}
+diff --git a/database/migrations/2026_11_01_000000_create_blueprint_revisions_table.php b/database/migrations/2026_11_01_000000_create_blueprint_revisions_table.php
+new file mode 100644
+index 0000000..48409d5
+--- /dev/null
++++ b/database/migrations/2026_11_01_000000_create_blueprint_revisions_table.php
+@@ -0,0 +1,26 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::create('blueprint_revisions', function (Blueprint $table) {
++            $table->id();
++            $table->string('namespace')->nullable();
++            $table->string('handle');
++            $table->json('data');
++            $table->timestamps();
++
++            $table->index(['namespace', 'handle']);
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::dropIfExists('blueprint_revisions');
++    }
++};
+diff --git a/resources/js/blueprint-revisions.js b/resources/js/blueprint-revisions.js
+new file mode 100644
+index 0000000..52e078d
+--- /dev/null
++++ b/resources/js/blueprint-revisions.js
+@@ -0,0 +1,196 @@
++// Revision history panel for the CP blueprint edit page.
++// The CP is a single-page app, so the URL is checked whenever the DOM changes;
++// the panel is mounted or removed to match the current blueprint.
++(function () {
++    if (window.__blueprintRevisionsLoaded) {
++        return;
++    }
++
++    window.__blueprintRevisionsLoaded = true;
++
++    var PANEL_ID = 'blueprint-revisions';
++    var EDIT_PATH = /^\/cp\/fields\/blueprints\/((?:[^/]+\/)+[^/]+)\/edit\/?$/;
++
++    function parse(pathname) {
++        var match = EDIT_PATH.exec(pathname);
++
++        if (!match) {
++            return null;
++        }
++
++        var parts = match[1].split('/');
++        var handle = parts.pop();
++
++        return { namespace: parts.join('.'), handle: handle };
++    }
++
++    function el(tag, attributes, text) {
++        var node = document.createElement(tag);
++
++        Object.keys(attributes || {}).forEach(function (name) {
++            node.setAttribute(name, attributes[name]);
++        });
++
++        if (text !== undefined) {
++            node.textContent = text;
++        }
++
++        return node;
++    }
++
++    function endpoint(target) {
++        return '/cp/blueprint-revisions/' + encodeURIComponent(target.namespace) + '/' + encodeURIComponent(target.handle);
++    }
++
++    function request(url, options) {
++        options = options || {};
++        options.credentials = 'same-origin';
++        options.headers = Object.assign({ Accept: 'application/json' }, options.headers || {});
++
++        return fetch(url, options).then(function (response) {
++            if (!response.ok) {
++                throw new Error('HTTP ' + response.status);
++            }
++
++            return response.json();
++        });
++    }
++
++    function xsrfToken() {
++        var match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
++
++        return match ? decodeURIComponent(match[1]) : '';
++    }
++
++    function formatDate(value) {
++        var date = new Date(value);
++
++        return isNaN(date) ? value : date.toLocaleString();
++    }
++
++    function showPreview(target, id, ui) {
++        ui.preview.replaceChildren(el('p', {}, 'Loading changes…'));
++
++        request(endpoint(target) + '/' + encodeURIComponent(id) + '/diff').then(function (body) {
++            if (body.changes.length === 0) {
++                ui.preview.replaceChildren(el('p', {}, 'Restoring this revision would change nothing.'));
++
++                return;
++            }
++
++            var nodes = [el('p', {}, 'Restoring would change ' + body.changes.length + ' value(s):')];
++
++            body.changes.forEach(function (change) {
++                nodes.push(
++                    el('code', { style: 'display:block;margin-top:.5rem;font-weight:600' }, change.path),
++                    el('pre', { style: 'margin:.25rem 0;white-space:pre-wrap;word-break:break-all' }, 'from: ' + JSON.stringify(change.from)),
++                    el('pre', { style: 'margin:.25rem 0;white-space:pre-wrap;word-break:break-all' }, 'to:   ' + JSON.stringify(change.to))
++                );
++            });
++
++            ui.preview.replaceChildren(...nodes);
++        }).catch(function () {
++            ui.preview.replaceChildren(el('p', {}, 'Could not load the preview.'));
++        });
++    }
++
++    function restoreRevision(target, id, ui) {
++        var confirmed = window.confirm(
++            'Restore revision ' + id + '? The current blueprint will be replaced. The restore is itself recorded, so it can be undone.'
++        );
++
++        if (!confirmed) {
++            return;
++        }
++
++        request(endpoint(target) + '/' + encodeURIComponent(id) + '/restore', {
++            method: 'POST',
++            headers: { 'X-XSRF-TOKEN': xsrfToken() },
++        }).then(function () {
++            window.location.reload();
++        }).catch(function () {
++            ui.status.textContent = 'Restore failed. Nothing was changed.';
++        });
++    }
++
++    function row(target, revision, ui) {
++        var item = el('li', {
++            'data-revision-id': String(revision.id),
++            style: 'padding:.5rem 0;border-top:1px solid #e2e8f0',
++        });
++
++        var preview = el('button', { type: 'button', 'data-revision-preview': String(revision.id) }, 'Preview');
++        var restore = el('button', { type: 'button', 'data-revision-restore': String(revision.id) }, 'Restore');
++
++        preview.addEventListener('click', function () {
++            showPreview(target, revision.id, ui);
++        });
++
++        restore.addEventListener('click', function () {
++            restoreRevision(target, revision.id, ui);
++        });
++
++        item.append(el('div', { title: revision.created_at }, formatDate(revision.created_at)), preview, ' ', restore);
++
++        return item;
++    }
++
++    function mount(target, key) {
++        var panel = el('div', {
++            id: PANEL_ID,
++            'data-blueprint': key,
++            style: 'position:fixed;bottom:1rem;right:1rem;width:22rem;max-height:70vh;overflow:auto;z-index:1000;'
++                + 'padding:1rem;background:#fff;color:#111;border:1px solid #cbd5e1;border-radius:.5rem;'
++                + 'box-shadow:0 10px 30px rgba(0,0,0,.15);font:13px/1.4 system-ui,sans-serif',
++        });
++
++        var ui = {
++            status: el('p', {}, 'Loading…'),
++            list: el('ul', { style: 'list-style:none;margin:0;padding:0' }),
++            preview: el('div', {}),
++        };
++
++        panel.append(el('h2', { style: 'margin:0 0 .5rem;font-size:1rem;font-weight:600' }, 'Revisions'), ui.status, ui.list, ui.preview);
++        document.body.appendChild(panel);
++
++        request(endpoint(target)).then(function (body) {
++            ui.status.textContent = body.revisions.length === 0 ? 'No revisions yet.' : '';
++
++            body.revisions.forEach(function (revision) {
++                ui.list.appendChild(row(target, revision, ui));
++            });
++        }).catch(function () {
++            ui.status.textContent = 'Could not load revisions.';
++        });
++    }
++
++    function sync() {
++        var target = parse(window.location.pathname);
++        var key = target ? target.namespace + '/' + target.handle : null;
++        var panel = document.getElementById(PANEL_ID);
++
++        if (panel && panel.getAttribute('data-blueprint') === key) {
++            return;
++        }
++
++        if (panel) {
++            panel.remove();
++        }
++
++        if (target) {
++            mount(target, key);
++        }
++    }
++
++    function start() {
++        sync();
++        new MutationObserver(sync).observe(document.body, { childList: true, subtree: true });
++        window.addEventListener('popstate', sync);
++    }
++
++    if (document.body) {
++        start();
++    } else {
++        document.addEventListener('DOMContentLoaded', start);
++    }
++})();
+diff --git a/routes/web.php b/routes/web.php
+index 696865a..d918267 100644
+--- a/routes/web.php
++++ b/routes/web.php
+@@ -1,7 +1,17 @@
+ <?php
+ 
++use App\Http\Controllers\BlueprintRevisionController;
+ use Illuminate\Support\Facades\Route;
+ 
+ // Route::statamic('example', 'example-view', [
+ //    'title' => 'Example'
+ // ]);
++
++Route::middleware(['statamic.cp', 'statamic.cp.authenticated'])
++    ->prefix('cp/blueprint-revisions/{namespace}/{handle}')
++    ->name('blueprint-revisions.')
++    ->group(function () {
++        Route::get('/', [BlueprintRevisionController::class, 'index'])->name('index');
++        Route::get('{id}/diff', [BlueprintRevisionController::class, 'diff'])->whereNumber('id')->name('diff');
++        Route::post('{id}/restore', [BlueprintRevisionController::class, 'restore'])->whereNumber('id')->name('restore');
++    });
+diff --git a/tests/Feature/BlueprintRevisionsTest.php b/tests/Feature/BlueprintRevisionsTest.php
+new file mode 100644
+index 0000000..40948a5
+--- /dev/null
++++ b/tests/Feature/BlueprintRevisionsTest.php
+@@ -0,0 +1,162 @@
++<?php
++
++namespace Tests\Feature;
++
++use App\Models\BlueprintRevision;
++use Illuminate\Foundation\Testing\RefreshDatabase;
++use Statamic\Facades\Blueprint;
++use Statamic\Facades\User;
++use Tests\TestCase;
++
++class BlueprintRevisionsTest extends TestCase
++{
++    use RefreshDatabase;
++
++    private function contents(string $label): array
++    {
++        return [
++            'title' => 'Page',
++            'tabs' => [
++                'main' => [
++                    'display' => 'Main',
++                    'sections' => [
++                        [
++                            '__count' => 0,
++                            'fields' => [
++                                ['handle' => 'title', 'field' => ['type' => 'text', 'display' => $label], '__count' => 0],
++                            ],
++                        ],
++                    ],
++                ],
++            ],
++        ];
++    }
++
++    private function save(string $label): void
++    {
++        Blueprint::make()
++            ->setNamespace('collections.pages')
++            ->setHandle('page')
++            ->setContents($this->contents($label))
++            ->save();
++    }
++
++    private function url(string $suffix = ''): string
++    {
++        return '/cp/blueprint-revisions/collections.pages/page'.$suffix;
++    }
++
++    private function asEditor(): void
++    {
++        $user = User::make()->email('editor@example.com');
++        $user->set('name', 'Editor');
++        $user->makeSuper();
++        $user->save();
++
++        $this->actingAs($user);
++    }
++
++    public function test_every_blueprint_save_records_a_revision_newest_first(): void
++    {
++        $this->asEditor();
++
++        $this->save('First');
++        $this->save('Second');
++
++        $revisions = $this->getJson($this->url())->assertOk()->json('revisions');
++
++        $this->assertCount(2, $revisions);
++        $this->assertSame(BlueprintRevision::max('id'), $revisions[0]['id']);
++        $this->assertLessThan($revisions[0]['id'], $revisions[1]['id']);
++        $this->assertNotFalse(\DateTime::createFromFormat(\DateTime::ATOM, $revisions[0]['created_at']));
++    }
++
++    public function test_history_is_empty_for_a_blueprint_without_revisions(): void
++    {
++        $this->asEditor();
++
++        $this->getJson($this->url())->assertOk()->assertExactJson(['revisions' => []]);
++    }
++
++    public function test_diff_describes_changes_from_current_to_revision(): void
++    {
++        $this->asEditor();
++
++        $this->save('First');
++        $firstId = BlueprintRevision::query()->orderBy('id')->value('id');
++        $this->save('Second');
++
++        $changes = $this->getJson($this->url("/{$firstId}/diff"))->assertOk()->json('changes');
++
++        $this->assertCount(1, $changes);
++        $this->assertSame('tabs.main.sections.0.fields.0.field.display', $changes[0]['path']);
++        $this->assertSame('Second', $changes[0]['from']);
++        $this->assertSame('First', $changes[0]['to']);
++    }
++
++    public function test_diff_of_the_current_contents_is_empty(): void
++    {
++        $this->asEditor();
++
++        $this->save('First');
++        $this->save('Second');
++        $latestId = BlueprintRevision::max('id');
++
++        $this->getJson($this->url("/{$latestId}/diff"))->assertOk()->assertExactJson(['changes' => []]);
++    }
++
++    public function test_preview_does_not_change_the_blueprint(): void
++    {
++        $this->asEditor();
++
++        $this->save('First');
++        $firstId = BlueprintRevision::max('id');
++        $this->save('Second');
++
++        $this->getJson($this->url("/{$firstId}/diff"))->assertOk();
++
++        $this->assertSame('Second', Blueprint::find('collections.pages.page')->field('title')->display());
++    }
++
++    public function test_restore_changes_the_blueprint_and_is_itself_recorded(): void
++    {
++        $this->asEditor();
++
++        $this->save('First');
++        $firstId = BlueprintRevision::max('id');
++        $this->save('Second');
++        $this->assertSame(2, BlueprintRevision::count());
++
++        $secondId = BlueprintRevision::max('id');
++
++        $this->postJson($this->url("/{$firstId}/restore"))->assertOk()->assertExactJson(['restored' => true]);
++
++        $this->assertSame('First', Blueprint::find('collections.pages.page')->field('title')->display());
++        $this->assertSame(3, BlueprintRevision::count());
++
++        // The restore is revertible: restoring the revision that was current before it brings back "Second".
++        $this->postJson($this->url("/{$secondId}/restore"))->assertOk();
++        $this->assertSame('Second', Blueprint::find('collections.pages.page')->field('title')->display());
++        $this->assertSame(4, BlueprintRevision::count());
++    }
++
++    public function test_unknown_revision_is_not_found(): void
++    {
++        $this->asEditor();
++
++        $this->save('First');
++
++        $this->getJson($this->url('/999/diff'))->assertNotFound();
++        $this->postJson($this->url('/999/restore'))->assertNotFound();
++    }
++
++    public function test_unauthenticated_requests_are_rejected(): void
++    {
++        $this->save('First');
++        $revisionId = BlueprintRevision::max('id');
++
++        $this->getJson($this->url())->assertUnauthorized();
++        $this->getJson($this->url("/{$revisionId}/diff"))->assertUnauthorized();
++        $this->postJson($this->url("/{$revisionId}/restore"))->assertUnauthorized();
++    }
++}
+diff --git a/tests/Feature/ExampleTest.php b/tests/Feature/ExampleTest.php
+index 8364a84..22ef0c5 100644
+--- a/tests/Feature/ExampleTest.php
++++ b/tests/Feature/ExampleTest.php
+@@ -2,11 +2,13 @@
+ 
+ namespace Tests\Feature;
+ 
+-// use Illuminate\Foundation\Testing\RefreshDatabase;
++use Illuminate\Foundation\Testing\RefreshDatabase;
+ use Tests\TestCase;
+ 
+ class ExampleTest extends TestCase
+ {
++    use RefreshDatabase;
++
+     /**
+      * A basic test example.
+      */
